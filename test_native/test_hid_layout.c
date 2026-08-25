@@ -248,6 +248,11 @@ static void test_rejected(void) {
     const uint8_t long_item[] = {0xfe, 0x02, 0x00, 0x00, 0x00};
     assert(!hid_layout_parse(long_item, sizeof(long_item), &layout));
 
+    // A real device that describes nothing this parser wants: one bit on a vendor page, inside
+    // a consumer control collection, and three bytes of padding after it
+    assert(!hid_layout_parse(callbutton_desc, callbutton_len, &layout));
+    assert(!layout.valid);
+
     ESP_LOGI(TAG, "Rejected what it cannot use");
 }
 
@@ -793,6 +798,63 @@ static void test_racing_wheel(void) {
     ESP_LOGI(TAG, "Xbox 360 racing wheel");
 }
 
+/// Arcade stick: buttons and a hat switch, and no axis anywhere
+static void test_arcade_stick(void) {
+    hid_layout_t layout;
+    assert(hid_layout_parse(gamepad11_desc, gamepad11_len, &layout));
+
+    assert(layout.report_id == 0);
+    check_field(&layout.buttons, 0, 1);
+    assert(layout.button_count == 10);
+    check_field(&layout.hat, 16, 4);
+    assert(!layout.x.present);
+    assert(!layout.y.present);
+
+    // Its buttons come with no logical minimum or maximum at all, so the globals in force are
+    // still nought and nought. A button is one bit either way, and the parser says so itself
+    // rather than believing a range that would make every button read as unpressed.
+    assert(layout.buttons.logical_min == 0);
+    assert(layout.buttons.logical_max == 1);
+    assert(hid_layout_read_button(pad11_reports[1], 4, &layout, 0));
+    assert(!hid_layout_read_button(pad11_reports[1], 4, &layout, 1));
+    for (int b = 0; b < 10; b++) {
+        assert(hid_layout_read_button(pad11_reports[2], 4, &layout, b));
+    }
+
+    // An eleventh button is not one it has
+    assert(!hid_layout_read_button(pad11_reports[2], 4, &layout, 10));
+
+    ESP_LOGI(TAG, "Arcade stick");
+}
+
+/// Guitar controller: a Slider and a Dial, which are generic desktop usages with no field here
+static void test_guitar(void) {
+    hid_layout_t layout;
+    assert(hid_layout_parse(gamepad12_desc, gamepad12_len, &layout));
+
+    assert(layout.report_id == 0);
+
+    // The whammy bar is an Rz. The Slider at bit sixteen and the Dial at bit thirty-two are not
+    // taken, but they still take up room, so what follows has to be found past them.
+    check_field(&layout.rz, 0, 16);
+    assert(!layout.x.present);
+    assert(!layout.y.present);
+    assert(!layout.z.present);
+    assert(!layout.wheel.present);
+    check_field(&layout.buttons, 48, 1);
+    assert(layout.button_count == 10);
+    check_field(&layout.hat, 64, 4);
+
+    assert(hid_layout_read(pad12_reports[0], 10, &layout.rz) == 0x8000);
+    assert(hid_layout_read(pad12_reports[2], 10, &layout.rz) == 65535);
+
+    bool up = false, down = false, left = false, right = false;
+    hid_layout_hat_directions(pad12_reports[1], 10, &layout.hat, &up, &down, &left, &right);
+    assert(down && !up && !left && !right);
+
+    ESP_LOGI(TAG, "Guitar controller");
+}
+
 int main(void) {
     test_logitech_m705();
     test_trust_mouse();
@@ -807,6 +869,8 @@ int main(void) {
     test_luna();
     test_dualsense();
     test_racing_wheel();
+    test_arcade_stick();
+    test_guitar();
     test_extra_axes();
     test_simulation_and_consumer();
     test_multiple_reports();

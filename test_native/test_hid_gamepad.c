@@ -273,6 +273,49 @@ static void test_racing_wheel(void) {
     ESP_LOGI(TAG, "Xbox 360 racing wheel");
 }
 
+/// A stick with no axes at all still has directions, because it has a hat switch
+static void test_arcade_stick(void) {
+    assert(hid_gamepad_open(&gamepad, gamepad11_desc, gamepad11_len, UNKNOWN_VID, UNKNOWN_PID));
+    assert(!gamepad.layout.x.present);
+    assert(!gamepad.layout.y.present);
+
+    check(feed(pad11_reports[0], 4), false, false, false, false, 0);
+
+    // Hat north, first button. Nothing but the hat can move a direction here, so every one of
+    // them is a d-pad press.
+    hid_gamepad_state_t pressed = feed(pad11_reports[1], 4);
+    check(pressed, true, false, false, false, BUTTON(1));
+    assert(pressed.dpad_up);
+
+    // Hat north west, so up and left together, with all ten buttons held
+    hid_gamepad_state_t corner = feed(pad11_reports[2], 4);
+    check(corner, true, false, true, false, 0x3ff);
+    assert(corner.dpad_up && corner.dpad_left);
+    assert(corner.usage_buttons == 0x3ff);
+
+    hid_gamepad_close(&gamepad);
+    ESP_LOGI(TAG, "Arcade stick");
+}
+
+/// Guitar controller: a hat switch, ten buttons, and a whammy bar that is none of the above
+static void test_guitar(void) {
+    assert(hid_gamepad_open(&gamepad, gamepad12_desc, gamepad12_len, UNKNOWN_VID, UNKNOWN_PID));
+
+    check(feed(pad12_reports[0], 10), false, false, false, false, 0);
+
+    hid_gamepad_state_t pressed = feed(pad12_reports[1], 10);
+    check(pressed, false, true, false, false, BUTTON(1));
+    assert(pressed.dpad_down);
+
+    // The whammy bar hard over is not a direction, whatever else is going on
+    hid_gamepad_state_t whammy = feed(pad12_reports[2], 10);
+    check(whammy, false, false, false, true, 0x3ff);
+    assert(whammy.dpad_right);
+
+    hid_gamepad_close(&gamepad);
+    ESP_LOGI(TAG, "Guitar controller");
+}
+
 int main(void) {
     test_stadia();
     test_dualshock4_clone();
@@ -284,6 +327,8 @@ int main(void) {
     test_luna();
     test_dualsense();
     test_racing_wheel();
+    test_arcade_stick();
+    test_guitar();
     test_mice_are_rejected();
 
     printf("All gamepad tests passed\n");

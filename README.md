@@ -207,12 +207,15 @@ controller and the DualShock 4 clone were captured for
 [konsool-HID](https://github.com/annejan/konsool-HID/pull/2), the rest on a Tanmatsu and on a Linux
 host.
 
-Six more were taken from [DJm00n/ControllersInfo](https://github.com/DJm00n/ControllersInfo), which
+Nine more were taken from [DJm00n/ControllersInfo](https://github.com/DJm00n/ControllersInfo), which
 publishes descriptors dumped from the hardware, one directory per controller: an Xbox Wireless
 Controller, a Switch Pro Controller, an Xbox 360 wired controller, an Amazon Luna controller, a
-DualSense and an Xbox 360 racing wheel. Between them they cover sixteen bit axes, analog triggers on
-the simulation page, a hat switch starting mid byte, a hat a whole byte wide, four byte usages that
-name their own page, and a device with an X axis and no Y.
+DualSense, an Xbox 360 racing wheel, an Xbox 360 arcade stick, an Xbox 360 guitar and an Xbox 360
+call button. Between them they cover sixteen bit axes, analog triggers on the simulation page, a hat
+switch starting mid byte, a hat a whole byte wide, four byte usages that name their own page, a
+device with an X axis and no Y, a device with no axis at all, buttons that never say what they range
+between, Slider and Dial usages that have to be stepped over, and a device with nothing usable in it
+whatsoever.
 
 ## License
 
