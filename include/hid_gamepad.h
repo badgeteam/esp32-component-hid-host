@@ -54,9 +54,16 @@ typedef struct {
     bool left;
     bool right;
 
-    /// Bit b is set when button b is down, numbered the way the gamepad reports them. Buttons that
-    /// act as a d-pad are not in here, they turned into directions.
+    /// Bit b is set when button b is down, in the order the report holds them. Buttons that act
+    /// as a d-pad are not in here, they turned into directions.
     uint32_t buttons;
+
+    /// Bit n is set when the button the descriptor calls Button n+1 is down
+    ///
+    /// A device is free to list its buttons in any order, and some list them backwards, so the
+    /// third bit of a report need not be Button 3. Name a button by this rather than by where it
+    /// happens to sit. Buttons the descriptor left unnamed, or numbered past 32, are not in here.
+    uint32_t usage_buttons;
 
     /// How many bits of buttons mean anything
     uint16_t button_count;

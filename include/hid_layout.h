@@ -26,6 +26,9 @@ typedef struct {
     int32_t  logical_max;
 } hid_field_t;
 
+/// Buttons whose usage is remembered. Anything past this is still read, just not named.
+#define HID_LAYOUT_MAX_BUTTONS 32
+
 /// @brief Where the controls of a device sit within one of its input reports
 ///
 /// USB HID devices do not agree on a report layout, they describe it. This holds the part of
@@ -52,6 +55,14 @@ typedef struct {
     hid_field_t hat;
     hid_field_t buttons;  // bit_size is one, the number of them is in button_count
     uint16_t    button_count;
+
+    /// What the descriptor calls each button, in the order the report holds them
+    ///
+    /// A device is free to list its buttons in any order it likes, and some list them backwards,
+    /// so the third bit of a report is not necessarily Button 3. This keeps the usage the
+    /// descriptor gave each one, which is the number a caller should name a button by. Zero means
+    /// the descriptor did not say, and buttons past HID_LAYOUT_MAX_BUTTONS are not recorded.
+    uint8_t button_usage[HID_LAYOUT_MAX_BUTTONS];
 } hid_layout_t;
 
 /// @brief The layout of every input report of a device

@@ -251,8 +251,26 @@ static hid_layout_t* report_slot(hid_layouts_t* layouts, uint16_t* bit_offsets, 
 /// Devices that report more buttons than a single item covers split them over two, which is
 /// only worth following when the second carries straight on from the first. Buttons split by
 /// padding or by another control cannot be numbered in one run, so the rest are left.
+/// @brief Remember what the descriptor called each of the buttons this item covers
+static void name_buttons(hid_layout_t* layout, uint16_t first, uint16_t count, bool usage_range, uint32_t usage_min,
+                         const uint16_t* usages, uint8_t usage_count) {
+    for (uint16_t i = 0; i < count; i++) {
+        uint16_t slot = (uint16_t)(first + i);
+        if (slot >= HID_LAYOUT_MAX_BUTTONS) {
+            return;
+        }
+        uint32_t usage = 0;
+        if (usage_range) {
+            usage = usage_min + i;
+        } else if (i < usage_count) {
+            usage = usages[i];
+        }
+        layout->button_usage[slot] = (usage <= UINT8_MAX) ? (uint8_t)usage : 0;
+    }
+}
+
 static void take_buttons(hid_layout_t* layout, uint16_t bit_offset, const globals_t* g, bool usage_range,
-                         uint32_t usage_min, uint32_t usage_max) {
+                         uint32_t usage_min, uint32_t usage_max, const uint16_t* usages, uint8_t usage_count) {
     // Buttons are one bit each; a device that packs them any other way is not followed
     if (g->report_size != 1) {
         return;
@@ -273,11 +291,13 @@ static void take_buttons(hid_layout_t* layout, uint16_t bit_offset, const global
         layout->buttons.logical_min = 0;
         layout->buttons.logical_max = 1;
         layout->button_count        = count;
+        name_buttons(layout, 0, count, usage_range, usage_min, usages, usage_count);
         return;
     }
 
     if (bit_offset == layout->buttons.bit_offset + layout->button_count &&
         (uint32_t)layout->button_count + count <= MAX_REPORT_BITS) {
+        name_buttons(layout, layout->button_count, count, usage_range, usage_min, usages, usage_count);
         layout->button_count = (uint16_t)(layout->button_count + count);
     }
 }
@@ -473,7 +493,8 @@ bool hid_layout_parse_all(const uint8_t* report_descriptor, size_t length, hid_l
                 if (layout != NULL) {
                     if (!(flags & HID_INPUT_CONSTANT)) {
                         if (g.usage_page == HID_USAGE_PAGE_BUTTON) {
-                            take_buttons(layout, *bit_offset, &g, usage_range, usage_min, usage_max);
+                            take_buttons(layout, *bit_offset, &g, usage_range, usage_min, usage_max, usages,
+                                         usage_count);
                         } else {
                             take_axes(layout, *bit_offset, &g, usages, usage_count,
                                       (flags & HID_INPUT_RELATIVE) != 0);

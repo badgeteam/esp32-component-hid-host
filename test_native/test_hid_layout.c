@@ -123,6 +123,13 @@ static void test_stadia(void) {
     check_field(&layout.x, 24, 8);
     check_field(&layout.y, 32, 8);
 
+    // It lists its buttons backwards, so the first bit of its report is Button 18 and the last is
+    // Button 1. Anything reading by bit position mislabels every button on it.
+    static const uint8_t expected[15] = {18, 17, 20, 19, 13, 12, 11, 15, 14, 8, 7, 5, 4, 2, 1};
+    for (int b = 0; b < 15; b++) {
+        assert(layout.button_usage[b] == expected[b]);
+    }
+
     // A stick reports where it is, which is what makes it usable as a direction
     assert(!layout.x.relative);
     assert(!layout.y.relative);

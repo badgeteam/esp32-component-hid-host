@@ -54,6 +54,9 @@ static void test_stadia(void) {
     // Hat up while the stick is pushed down and left: both are reported, the caller decides
     check(feed(pad1_reports[3], 11), true, true, true, false, BUTTON(1) | BUTTON(2));
 
+    // Those two bits are the first two of the report, which this pad calls Button 18 and 17
+    assert(feed(pad1_reports[3], 11).usage_buttons == (BUTTON(18) | BUTTON(17)));
+
     // Hat at 15 means centered, every one of its fifteen buttons held
     check(feed(pad1_reports[4], 11), false, false, false, false, 0x7fff);
 
