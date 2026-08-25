@@ -12,3 +12,29 @@ jobs:
       - uses: actions/checkout@v5
       - name: Run the tests
         run: make -C test_native test
+
+  test-sanitized:
+    name: Report descriptor tests, sanitized
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Run the tests under the address and undefined behaviour sanitizers
+        run: make -C test_native test-sanitized
+
+  fuzz:
+    name: Fuzz the report descriptor parser
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Fuzz, seeded with the captured descriptors
+        run: make -C test_native fuzz-ci FUZZ_SECONDS=120
+      - name: Keep whatever it found
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-findings
+          path: |
+            test_native/crash-*
+            test_native/leak-*
+            test_native/timeout-*
+          if-no-files-found: ignore

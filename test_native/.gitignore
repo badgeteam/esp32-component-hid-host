@@ -1,2 +1,11 @@
 *.o
 test_hid_layout
+test_hid_gamepad
+test_hid_layout_san
+test_hid_gamepad_san
+fuzz_hid_layout
+dump_corpus
+corpus/
+crash-*
+leak-*
+timeout-*
