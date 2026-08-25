@@ -52,7 +52,14 @@ static void test_stadia(void) {
     check(feed(pad1_reports[2], 11), false, false, false, false, 0);
 
     // Hat up while the stick is pushed down and left: both are reported, the caller decides
-    check(feed(pad1_reports[3], 11), true, true, true, false, BUTTON(1) | BUTTON(2));
+    hid_gamepad_state_t pushed = feed(pad1_reports[3], 11);
+    check(pushed, true, true, true, false, BUTTON(1) | BUTTON(2));
+
+    // Only the hat is a d-pad press. Down and left came from the stick, and stay out of it.
+    assert(pushed.dpad_up);
+    assert(!pushed.dpad_down);
+    assert(!pushed.dpad_left);
+    assert(!pushed.dpad_right);
 
     // Those two bits are the first two of the report, which this pad calls Button 18 and 17
     assert(feed(pad1_reports[3], 11).usage_buttons == (BUTTON(18) | BUTTON(17)));

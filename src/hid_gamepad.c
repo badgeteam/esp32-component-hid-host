@@ -109,11 +109,16 @@ bool hid_gamepad_decode(const hid_gamepad_t* gamepad, const uint8_t* data, int l
 
     if (gamepad->layout.hat.present) {
         // Eight directions clockwise starting at up, anything else means centered
-        int32_t hat  = hid_layout_read(data, length, &gamepad->layout.hat) - gamepad->layout.hat.logical_min;
-        state->up    = state->up || (hat == 0 || hat == 1 || hat == 7);
-        state->right = state->right || (hat == 1 || hat == 2 || hat == 3);
-        state->down  = state->down || (hat == 3 || hat == 4 || hat == 5);
-        state->left  = state->left || (hat == 5 || hat == 6 || hat == 7);
+        int32_t hat       = hid_layout_read(data, length, &gamepad->layout.hat) - gamepad->layout.hat.logical_min;
+        state->dpad_up    = (hat == 0 || hat == 1 || hat == 7);
+        state->dpad_right = (hat == 1 || hat == 2 || hat == 3);
+        state->dpad_down  = (hat == 3 || hat == 4 || hat == 5);
+        state->dpad_left  = (hat == 5 || hat == 6 || hat == 7);
+
+        state->up    = state->up || state->dpad_up;
+        state->right = state->right || state->dpad_right;
+        state->down  = state->down || state->dpad_down;
+        state->left  = state->left || state->dpad_left;
     }
 
     for (uint16_t b = 0; b < gamepad->layout.button_count && b < HID_GAMEPAD_MAX_BUTTONS; b++) {
@@ -123,16 +128,20 @@ bool hid_gamepad_decode(const hid_gamepad_t* gamepad, const uint8_t* data, int l
             // These four are a d-pad, so they are directions rather than buttons
             switch (b - gamepad->dpad_first) {
                 case 0:
-                    state->up = state->up || pressed;
+                    state->dpad_up = state->dpad_up || pressed;
+                    state->up      = state->up || pressed;
                     break;
                 case 1:
-                    state->right = state->right || pressed;
+                    state->dpad_right = state->dpad_right || pressed;
+                    state->right      = state->right || pressed;
                     break;
                 case 2:
-                    state->down = state->down || pressed;
+                    state->dpad_down = state->dpad_down || pressed;
+                    state->down      = state->down || pressed;
                     break;
                 default:
-                    state->left = state->left || pressed;
+                    state->dpad_left = state->dpad_left || pressed;
+                    state->left      = state->left || pressed;
                     break;
             }
             continue;
