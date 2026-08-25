@@ -17,7 +17,7 @@ Add it to `idf_component.yml`:
 
 ```yaml
 dependencies:
-  badgeteam/hid-host: "^0.2.0"
+  badgeteam/hid-host: "^0.3.0"
 ```
 
 Ask the HID host driver for the report descriptor, parse it once when the device connects, then
