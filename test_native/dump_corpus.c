@@ -28,6 +28,12 @@ int main(void) {
     failed |= write_one("gamepad2", gamepad2_desc, gamepad2_len);
     failed |= write_one("gamepad3", gamepad3_desc, gamepad3_len);
     failed |= write_one("gamepad4", gamepad4_desc, gamepad4_len);
+    failed |= write_one("gamepad5", gamepad5_desc, gamepad5_len);
+    failed |= write_one("gamepad6", gamepad6_desc, gamepad6_len);
+    failed |= write_one("gamepad7", gamepad7_desc, gamepad7_len);
+    failed |= write_one("gamepad8", gamepad8_desc, gamepad8_len);
+    failed |= write_one("gamepad9", gamepad9_desc, gamepad9_len);
+    failed |= write_one("gamepad10", gamepad10_desc, gamepad10_len);
 
     return failed;
 }

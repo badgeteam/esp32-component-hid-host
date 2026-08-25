@@ -59,6 +59,12 @@
 // A long item, which carries its own size and holds nothing this parser wants
 #define HID_LONG_ITEM_PREFIX 0xfe
 
+// A usage item four bytes wide carries the usage page it belongs to in its top sixteen bits,
+// for that usage alone, rather than taking the one the global items are on. See HID 1.11
+// section 6.2.2.8. A Switch Pro controller names every one of its controls that way.
+#define HID_USAGE_PAGE_OF(usage) ((uint16_t)((usage) >> 16))
+#define HID_USAGE_ID_OF(usage)   ((uint16_t)((usage) & 0xffff))
+
 // Most usages one input item can name before the rest is ignored
 #define MAX_LOCAL_USAGES 32
 
@@ -251,9 +257,15 @@ static hid_layout_t* report_slot(hid_layouts_t* layouts, uint16_t* bit_offsets, 
 /// Devices that report more buttons than a single item covers split them over two, which is
 /// only worth following when the second carries straight on from the first. Buttons split by
 /// padding or by another control cannot be numbered in one run, so the rest are left.
+/// @brief The page a usage sits on, its own when it named one and the global one otherwise
+static uint16_t usage_page_of(uint32_t usage, uint16_t global_page) {
+    uint16_t page = HID_USAGE_PAGE_OF(usage);
+    return page != 0 ? page : global_page;
+}
+
 /// @brief Remember what the descriptor called each of the buttons this item covers
 static void name_buttons(hid_layout_t* layout, uint16_t first, uint16_t count, bool usage_range, uint32_t usage_min,
-                         const uint16_t* usages, uint8_t usage_count) {
+                         const uint32_t* usages, uint8_t usage_count) {
     for (uint16_t i = 0; i < count; i++) {
         uint16_t slot = (uint16_t)(first + i);
         if (slot >= HID_LAYOUT_MAX_BUTTONS) {
@@ -261,24 +273,24 @@ static void name_buttons(hid_layout_t* layout, uint16_t first, uint16_t count, b
         }
         uint32_t usage = 0;
         if (usage_range) {
-            usage = usage_min + i;
+            usage = (uint32_t)HID_USAGE_ID_OF(usage_min) + i;
         } else if (i < usage_count) {
-            usage = usages[i];
+            usage = HID_USAGE_ID_OF(usages[i]);
         }
         layout->button_usage[slot] = (usage <= UINT8_MAX) ? (uint8_t)usage : 0;
     }
 }
 
 static void take_buttons(hid_layout_t* layout, uint16_t bit_offset, const globals_t* g, bool usage_range,
-                         uint32_t usage_min, uint32_t usage_max, const uint16_t* usages, uint8_t usage_count) {
+                         uint32_t usage_min, uint32_t usage_max, const uint32_t* usages, uint8_t usage_count) {
     // Buttons are one bit each; a device that packs them any other way is not followed
     if (g->report_size != 1) {
         return;
     }
 
     uint16_t count = g->report_count;
-    if (usage_range && usage_max >= usage_min) {
-        uint32_t named = usage_max - usage_min + 1;
+    if (usage_range && HID_USAGE_ID_OF(usage_max) >= HID_USAGE_ID_OF(usage_min)) {
+        uint32_t named = (uint32_t)HID_USAGE_ID_OF(usage_max) - HID_USAGE_ID_OF(usage_min) + 1;
         if (named < count) {
             count = (uint16_t)named;
         }
@@ -346,10 +358,11 @@ static hid_field_t* field_for_usage(hid_layout_t* layout, uint16_t usage_page, u
 }
 
 /// @brief Take the axes an input item names, by usage
-static void take_axes(hid_layout_t* layout, uint16_t bit_offset, const globals_t* g, const uint16_t* usages,
+static void take_axes(hid_layout_t* layout, uint16_t bit_offset, const globals_t* g, const uint32_t* usages,
                       uint8_t usage_count, bool relative) {
     for (uint16_t f = 0; f < g->report_count && f < usage_count; f++) {
-        hid_field_t* field = field_for_usage(layout, g->usage_page, usages[f]);
+        hid_field_t* field =
+            field_for_usage(layout, usage_page_of(usages[f], g->usage_page), HID_USAGE_ID_OF(usages[f]));
         if (field != NULL && !field->present) {
             field->present     = true;
             field->relative    = relative;
@@ -417,7 +430,7 @@ bool hid_layout_parse_all(const uint8_t* report_descriptor, size_t length, hid_l
     globals_t stack[GLOBAL_STACK_DEPTH];
     uint8_t   depth   = 0;
 
-    uint16_t usages[MAX_LOCAL_USAGES];
+    uint32_t usages[MAX_LOCAL_USAGES];
     uint8_t  usage_count = 0;
     uint32_t usage_min   = 0;
     uint32_t usage_max   = 0;
@@ -474,7 +487,7 @@ bool hid_layout_parse_all(const uint8_t* report_descriptor, size_t length, hid_l
                 break;
             case HID_ITEM_USAGE:
                 if (usage_count < MAX_LOCAL_USAGES) {
-                    usages[usage_count++] = (uint16_t)item_data(data, size);
+                    usages[usage_count++] = item_data(data, size);
                 }
                 break;
             case HID_ITEM_USAGE_MIN:
@@ -492,7 +505,16 @@ bool hid_layout_parse_all(const uint8_t* report_descriptor, size_t length, hid_l
 
                 if (layout != NULL) {
                     if (!(flags & HID_INPUT_CONSTANT)) {
-                        if (g.usage_page == HID_USAGE_PAGE_BUTTON) {
+                        // Which page this item is on decides whether it holds buttons or axes,
+                        // and a usage that named its own page is the one that says so
+                        uint16_t page = g.usage_page;
+                        if (usage_range) {
+                            page = usage_page_of(usage_min, g.usage_page);
+                        } else if (usage_count > 0) {
+                            page = usage_page_of(usages[0], g.usage_page);
+                        }
+
+                        if (page == HID_USAGE_PAGE_BUTTON) {
                             take_buttons(layout, *bit_offset, &g, usage_range, usage_min, usage_max, usages,
                                          usage_count);
                         } else {

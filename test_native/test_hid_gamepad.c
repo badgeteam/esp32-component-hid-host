@@ -148,11 +148,142 @@ static void test_mice_are_rejected(void) {
     ESP_LOGI(TAG, "Mice are left alone");
 }
 
+/// Xbox Wireless Controller: a hat that numbers its directions from one, and analog triggers
+static void test_xbox_wireless(void) {
+    assert(hid_gamepad_open(&gamepad, gamepad5_desc, gamepad5_len, UNKNOWN_VID, UNKNOWN_PID));
+    assert(gamepad.quirk == NULL);
+
+    // Sticks at the middle of a sixteen bit range and a hat resting at nought, one below the
+    // one to eight it described
+    check(feed(pad5_reports[0], 17), false, false, false, false, 0);
+
+    // Left stick hard left with the hat pushed south, so both directions come out and only the
+    // hat one counts as a d-pad press
+    hid_gamepad_state_t pushed = feed(pad5_reports[1], 17);
+    check(pushed, false, true, true, false, BUTTON(1));
+    assert(pushed.dpad_down);
+    assert(!pushed.dpad_left);
+
+    // Right and up, hat back at rest, every one of its fifteen buttons held
+    hid_gamepad_state_t all = feed(pad5_reports[2], 17);
+    check(all, true, false, false, true, 0x7fff);
+    assert(!all.dpad_up && !all.dpad_right);
+
+    // This one numbers its buttons in the order the report holds them, so both come out the same
+    assert(all.usage_buttons == 0x7fff);
+    assert(all.button_count == 15);
+
+    hid_gamepad_close(&gamepad);
+    ESP_LOGI(TAG, "Xbox Wireless Controller");
+}
+
+/// Switch Pro Controller: axes named by four byte usages, and buttons past the ones it counted
+static void test_switch_pro(void) {
+    assert(hid_gamepad_open(&gamepad, gamepad6_desc, gamepad6_len, UNKNOWN_VID, UNKNOWN_PID));
+
+    check(feed(pad6_reports[0], 64), false, false, false, false, 0);
+
+    // Hat west, and the first button its descriptor names Button 1
+    hid_gamepad_state_t pressed = feed(pad6_reports[1], 64);
+    check(pressed, false, false, true, false, BUTTON(1));
+    assert(pressed.dpad_left);
+    assert(pressed.usage_buttons == BUTTON(1));
+
+    // Left stick hard right and down, with the four buttons past the counted ones held. Those
+    // sit after the hat switch, so they are not part of the run and stay out of the state.
+    hid_gamepad_state_t stick = feed(pad6_reports[2], 64);
+    check(stick, false, true, false, true, 0);
+    assert(!stick.dpad_down && !stick.dpad_right);
+    assert(stick.button_count == 14);
+
+    hid_gamepad_close(&gamepad);
+    ESP_LOGI(TAG, "Switch Pro Controller");
+}
+
+/// Xbox 360 wired controller: no report ID, so nothing comes off the front of a report
+static void test_xbox_360(void) {
+    assert(hid_gamepad_open(&gamepad, gamepad7_desc, gamepad7_len, UNKNOWN_VID, UNKNOWN_PID));
+    assert(gamepad.layout.report_id == 0);
+
+    check(feed(pad7_reports[0], 14), false, false, false, false, 0);
+
+    // Hat north, buttons one and ten, which for this pad are the first and last bits of its run
+    hid_gamepad_state_t pressed = feed(pad7_reports[1], 14);
+    check(pressed, true, false, false, false, BUTTON(1) | BUTTON(10));
+    assert(pressed.dpad_up);
+    assert(pressed.usage_buttons == (BUTTON(1) | BUTTON(10)));
+
+    // Left stick hard left and down, from a pair of sixteen bit axes
+    hid_gamepad_state_t stick = feed(pad7_reports[2], 14);
+    check(stick, false, true, true, false, 0);
+    assert(!stick.dpad_left && !stick.dpad_down);
+
+    hid_gamepad_close(&gamepad);
+    ESP_LOGI(TAG, "Xbox 360 wired controller");
+}
+
+/// Luna controller: a hat switch a byte wide, numbering its directions from nought
+static void test_luna(void) {
+    assert(hid_gamepad_open(&gamepad, gamepad8_desc, gamepad8_len, UNKNOWN_VID, UNKNOWN_PID));
+
+    check(feed(pad8_reports[0], 10), false, false, false, false, 0);
+
+    // Hat north with the twelfth button held
+    hid_gamepad_state_t pressed = feed(pad8_reports[1], 10);
+    check(pressed, true, false, false, false, BUTTON(12));
+    assert(pressed.dpad_up);
+
+    check(feed(pad8_reports[2], 10), false, true, true, false, 0);
+
+    hid_gamepad_close(&gamepad);
+    ESP_LOGI(TAG, "Luna controller");
+}
+
+/// DualSense: a hat switch and buttons that sit behind a byte of vendor data
+static void test_dualsense(void) {
+    assert(hid_gamepad_open(&gamepad, gamepad9_desc, gamepad9_len, UNKNOWN_VID, UNKNOWN_PID));
+
+    check(feed(pad9_reports[0], 64), false, false, false, false, 0);
+
+    // Hat south with the sixth button held
+    hid_gamepad_state_t pressed = feed(pad9_reports[1], 64);
+    check(pressed, false, true, false, false, BUTTON(6));
+    assert(pressed.dpad_down);
+
+    // Left stick hard left, both triggers pulled, everything pressed
+    hid_gamepad_state_t all = feed(pad9_reports[2], 64);
+    check(all, false, false, true, false, 0x7fff);
+    assert(!all.dpad_left);
+    assert(hid_layout_read(pad9_reports[2] + 1, 63, &gamepad.layout.rx) == 255);
+    assert(hid_layout_read(pad9_reports[2] + 1, 63, &gamepad.layout.ry) == 255);
+
+    hid_gamepad_close(&gamepad);
+    ESP_LOGI(TAG, "DualSense");
+}
+
+/// A racing wheel steers, so it has a left and a right and never an up or a down
+static void test_racing_wheel(void) {
+    assert(hid_gamepad_open(&gamepad, gamepad10_desc, gamepad10_len, UNKNOWN_VID, UNKNOWN_PID));
+
+    check(feed(pad10_reports[0], 8), false, false, false, false, 0);
+    check(feed(pad10_reports[1], 8), false, false, true, false, 0);
+    check(feed(pad10_reports[2], 8), false, false, false, true, BUTTON(1));
+
+    hid_gamepad_close(&gamepad);
+    ESP_LOGI(TAG, "Xbox 360 racing wheel");
+}
+
 int main(void) {
     test_stadia();
     test_dualshock4_clone();
     test_dualshock3();
     test_competition_pro();
+    test_xbox_wireless();
+    test_switch_pro();
+    test_xbox_360();
+    test_luna();
+    test_dualsense();
+    test_racing_wheel();
     test_mice_are_rejected();
 
     printf("All gamepad tests passed\n");
