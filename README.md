@@ -149,6 +149,11 @@ you want when you are looking at a report rather than at a device.
 
 Both leave out any button that acts as a d-pad, since those turned into directions.
 
+`state.up` and its three siblings are what a menu wants: pushed is pushed, whether that came from
+the hat switch, from four buttons acting as a d-pad, or from a stick held over. A display of the
+pad itself wants to tell those apart, so `state.dpad_up` and friends carry only the hat and the
+d-pad buttons, leaving the stick out of it.
+
 What a button *means* is deliberately not decided here. A launcher wants a confirm key, an
 emulator wants a fire button, and neither belongs in a report decoder. Map `state.usage_buttons` at
 your own edge.

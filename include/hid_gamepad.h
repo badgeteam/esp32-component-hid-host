@@ -54,6 +54,15 @@ typedef struct {
     bool left;
     bool right;
 
+    /// The same four, but only from the hat switch or from a d-pad hiding in the buttons
+    ///
+    /// A pushed stick counts as a direction, which is what a menu wants and what a display of the
+    /// pad itself does not: it would light the d-pad up while the stick is the thing that moved.
+    bool dpad_up;
+    bool dpad_down;
+    bool dpad_left;
+    bool dpad_right;
+
     /// Bit b is set when button b is down, in the order the report holds them. Buttons that act
     /// as a d-pad are not in here, they turned into directions.
     uint32_t buttons;

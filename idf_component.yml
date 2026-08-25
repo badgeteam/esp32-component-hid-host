@@ -1,4 +1,4 @@
-version: "0.2.0"
+version: "0.3.0"
 description: "USB HID report descriptor parser and gamepad decoder: finds the axes, hat switch and buttons in a report"
 url: "https://github.com/badgeteam/esp32-component-hid-host"
 repository: "git://github.com/badgeteam/esp32-component-hid-host.git"
