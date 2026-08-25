@@ -591,6 +591,208 @@ static void test_bounds(void) {
     ESP_LOGI(TAG, "Stayed inside the report");
 }
 
+/// Xbox Wireless Controller: sixteen bit sticks, and analog triggers on the simulation page
+static void test_xbox_wireless(void) {
+    hid_layout_t layout;
+    assert(hid_layout_parse(gamepad5_desc, gamepad5_len, &layout));
+
+    assert(layout.report_id == 1);
+    check_field(&layout.x, 0, 16);
+    check_field(&layout.y, 16, 16);
+    check_field(&layout.z, 32, 16);
+    check_field(&layout.rz, 48, 16);
+    check_field(&layout.brake, 64, 10);
+    check_field(&layout.accelerator, 80, 10);
+    check_field(&layout.hat, 96, 4);
+    check_field(&layout.buttons, 104, 1);
+    assert(layout.button_count == 15);
+
+    // A sixteen bit axis that says its range is nought to 65535 is unsigned, so the top half of
+    // it has to come out positive rather than as a negative number
+    assert(layout.x.logical_min == 0);
+    assert(layout.x.logical_max == 65535);
+    assert(layout.brake.logical_max == 1023);
+
+    const uint8_t* data   = pad5_reports[2];
+    int            length = 17;
+    assert(hid_layout_strip_report_id(&layout, &data, &length));
+    assert(hid_layout_read(data, length, &layout.x) == 65535);
+    assert(hid_layout_read(data, length, &layout.y) == 0);
+
+    // Ten bits that do not end on a byte boundary, one either side of the padding between them
+    assert(hid_layout_read(data, length, &layout.brake) == 0);
+    assert(hid_layout_read(data, length, &layout.accelerator) == 1023);
+
+    data   = pad5_reports[1];
+    length = 17;
+    assert(hid_layout_strip_report_id(&layout, &data, &length));
+    assert(hid_layout_read(data, length, &layout.brake) == 1023);
+    assert(hid_layout_read(data, length, &layout.accelerator) == 0);
+
+    // The Record button after them is a consumer control rather than a button, so it is left
+    // where it is instead of being counted as a sixteenth
+    assert(layout.button_count == 15);
+
+    ESP_LOGI(TAG, "Xbox Wireless Controller");
+}
+
+/// Switch Pro Controller: four byte usages, which name the page they belong to themselves
+static void test_switch_pro(void) {
+    hid_layouts_t layouts;
+    assert(hid_layout_parse_all(gamepad6_desc, gamepad6_len, &layouts));
+
+    // Two vendor reports come after the one worth having, and neither holds anything usable
+    assert(layouts.count == 3);
+    const hid_layout_t* layout = hid_layouts_best(&layouts);
+    assert(layout != NULL);
+    assert(layout->report_id == 0x30);
+    assert(hid_layouts_find(&layouts, 0x21) != NULL);
+    assert(!hid_layouts_find(&layouts, 0x21)->valid);
+
+    // Its axes and its hat switch are named by usages four bytes wide, which carry the generic
+    // desktop page in their top half while the global page is still the button page. Reading
+    // only the bottom half puts them on the wrong page and loses every one of them.
+    check_field(&layout->x, 16, 16);
+    check_field(&layout->y, 32, 16);
+    check_field(&layout->z, 48, 16);
+    check_field(&layout->rz, 64, 16);
+    check_field(&layout->hat, 80, 4);
+
+    // Buttons one to ten and eleven to fourteen are separate items that carry straight on from
+    // one another, so they count as one run. Fifteen to eighteen sit past the hat switch and
+    // cannot be numbered in the same run, so they are left.
+    check_field(&layout->buttons, 0, 1);
+    assert(layout->button_count == 14);
+    for (int b = 0; b < 14; b++) {
+        assert(layout->button_usage[b] == b + 1);
+    }
+
+    // This hat numbers its directions from nought rather than from one
+    assert(layout->hat.logical_min == 0);
+    assert(layout->hat.logical_max == 7);
+
+    ESP_LOGI(TAG, "Switch Pro Controller");
+}
+
+/// Xbox 360 wired controller: no report ID, and a hat switch that starts mid byte
+static void test_xbox_360(void) {
+    hid_layout_t layout;
+    assert(hid_layout_parse(gamepad7_desc, gamepad7_len, &layout));
+
+    assert(layout.report_id == 0);
+    check_field(&layout.x, 0, 16);
+    check_field(&layout.y, 16, 16);
+    check_field(&layout.rx, 32, 16);
+    check_field(&layout.ry, 48, 16);
+    check_field(&layout.z, 64, 8);
+    check_field(&layout.rz, 72, 8);
+    check_field(&layout.buttons, 80, 1);
+    assert(layout.button_count == 10);
+
+    // Ten buttons leave the hat switch starting at bit ninety, four bits spread over two bytes
+    check_field(&layout.hat, 90, 4);
+
+    bool up = false, down = false, left = false, right = false;
+    hid_layout_hat_directions(pad7_reports[1], 14, &layout.hat, &up, &down, &left, &right);
+    assert(up && !down && !left && !right);
+
+    // Its triggers are ordinary axes rather than simulation controls
+    assert(!layout.accelerator.present);
+    assert(!layout.brake.present);
+    assert(hid_layout_read(pad7_reports[2], 14, &layout.z) == 255);
+    assert(hid_layout_read(pad7_reports[2], 14, &layout.rz) == 255);
+
+    ESP_LOGI(TAG, "Xbox 360 wired controller");
+}
+
+/// Luna controller: a hat switch a whole byte wide
+static void test_luna(void) {
+    hid_layout_t layout;
+    assert(hid_layout_parse(gamepad8_desc, gamepad8_len, &layout));
+
+    assert(layout.report_id == 1);
+    check_field(&layout.buttons, 0, 1);
+    assert(layout.button_count == 12);
+    check_field(&layout.hat, 16, 8);
+    check_field(&layout.x, 24, 8);
+    check_field(&layout.y, 32, 8);
+    check_field(&layout.z, 40, 8);
+    check_field(&layout.rz, 48, 8);
+    check_field(&layout.rx, 56, 8);
+    check_field(&layout.ry, 64, 8);
+
+    const uint8_t* data   = pad8_reports[0];
+    int            length = 10;
+    assert(hid_layout_strip_report_id(&layout, &data, &length));
+
+    // A byte wide hat that rests at eight, one past the seven it described
+    bool up = false, down = false, left = false, right = false;
+    hid_layout_hat_directions(data, length, &layout.hat, &up, &down, &left, &right);
+    assert(!up && !down && !left && !right);
+
+    data   = pad8_reports[1];
+    length = 10;
+    assert(hid_layout_strip_report_id(&layout, &data, &length));
+    hid_layout_hat_directions(data, length, &layout.hat, &up, &down, &left, &right);
+    assert(up && !down && !left && !right);
+
+    ESP_LOGI(TAG, "Luna controller");
+}
+
+/// DualSense: six axes in one item, and vendor data between them and the hat switch
+static void test_dualsense(void) {
+    hid_layout_t layout;
+    assert(hid_layout_parse(gamepad9_desc, gamepad9_len, &layout));
+
+    assert(layout.report_id == 1);
+    check_field(&layout.x, 0, 8);
+    check_field(&layout.y, 8, 8);
+    check_field(&layout.z, 16, 8);
+    check_field(&layout.rz, 24, 8);
+    check_field(&layout.rx, 32, 8);
+    check_field(&layout.ry, 40, 8);
+
+    // A byte of vendor data sits between the axes and the hat switch. It names no usage this
+    // parser wants, but it still takes up room, so everything after it has to move along.
+    check_field(&layout.hat, 56, 4);
+    // Thirteen more vendor bits follow the buttons, which are not buttons however close they sit
+    check_field(&layout.buttons, 60, 1);
+    assert(layout.button_count == 15);
+
+    ESP_LOGI(TAG, "DualSense");
+}
+
+/// Xbox 360 racing wheel: steering in X, and no Y at all
+static void test_racing_wheel(void) {
+    hid_layout_t layout;
+    assert(hid_layout_parse(gamepad10_desc, gamepad10_len, &layout));
+
+    assert(layout.report_id == 0);
+    check_field(&layout.x, 0, 16);
+    assert(!layout.y.present);
+    check_field(&layout.z, 16, 8);
+    check_field(&layout.buttons, 32, 1);
+    assert(layout.button_count == 10);
+    check_field(&layout.hat, 48, 4);
+
+    // Its pedal is a Throttle, which is a simulation control this parser has no field for, so it
+    // is left alone rather than mistaken for one of the triggers
+    assert(!layout.accelerator.present);
+    assert(!layout.brake.present);
+
+    bool up = false, down = false, left = false, right = false;
+    hid_layout_axis_directions(pad10_reports[1], 8, &layout.x, &left, &right);
+    assert(left && !right);
+    hid_layout_axis_directions(pad10_reports[2], 8, &layout.x, &left, &right);
+    assert(!left && right);
+
+    // Nothing reads a direction out of an axis the device does not have
+    hid_layout_axis_directions(pad10_reports[2], 8, &layout.y, &up, &down);
+    assert(!up && !down);
+
+    ESP_LOGI(TAG, "Xbox 360 racing wheel");
+}
+
 int main(void) {
     test_logitech_m705();
     test_trust_mouse();
@@ -599,6 +801,12 @@ int main(void) {
     test_dualshock4_clone();
     test_dualshock3();
     test_competition_pro();
+    test_xbox_wireless();
+    test_switch_pro();
+    test_xbox_360();
+    test_luna();
+    test_dualsense();
+    test_racing_wheel();
     test_extra_axes();
     test_simulation_and_consumer();
     test_multiple_reports();

@@ -9,7 +9,9 @@ in front of its report, and a five byte report means different things depending 
 Guessing by report length only ever works for the devices it was written against.
 
 This component reads the report descriptor instead and looks the controls up by usage, so a device
-it has never seen still works.
+it has never seen still works. A usage names the page it belongs to itself when the descriptor gives
+it in full, as a Switch Pro Controller does for every one of its controls, and that page wins over
+the one the global items are on.
 
 ## Use
 
@@ -204,6 +206,13 @@ controller, a DualShock 4 clone, a DualShock 3 and a Speedlink Competition Pro. 
 controller and the DualShock 4 clone were captured for
 [konsool-HID](https://github.com/annejan/konsool-HID/pull/2), the rest on a Tanmatsu and on a Linux
 host.
+
+Six more were taken from [DJm00n/ControllersInfo](https://github.com/DJm00n/ControllersInfo), which
+publishes descriptors dumped from the hardware, one directory per controller: an Xbox Wireless
+Controller, a Switch Pro Controller, an Xbox 360 wired controller, an Amazon Luna controller, a
+DualSense and an Xbox 360 racing wheel. Between them they cover sixteen bit axes, analog triggers on
+the simulation page, a hat switch starting mid byte, a hat a whole byte wide, four byte usages that
+name their own page, and a device with an X axis and no Y.
 
 ## License
 
