@@ -53,6 +53,18 @@ void on_report(const uint8_t* data, int length) {
 are. Every field carries its own logical minimum and maximum, so a stick that idles at 128 and one
 that idles at 0 both work without a special case.
 
+`button_usage[]` holds what the descriptor calls each button, in the order the report holds them.
+A device is free to list its buttons in any order it likes, and some list them backwards, so the
+third bit of a report need not be Button 3. Read a button by position with
+`hid_layout_read_button()`, and name it by its usage:
+
+```c
+uint8_t which = layout.button_usage[0];  // "Button 18" on a Stadia controller
+```
+
+Zero means the descriptor did not name that one, and buttons past `HID_LAYOUT_MAX_BUTTONS` are
+read but not named.
+
 A gamepad reports its left stick through `x` and `y`. The right stick is usually `z` and `rz`, and
 sometimes `rx` and `ry`; a pad that names its analog triggers as simulation controls puts them in
 `accelerator` and `brake`, and one that does not puts them in whichever axis pair is left over. A
@@ -120,16 +132,26 @@ if (!hid_gamepad_open(&gamepad, descriptor, length, vid, pid)) {
 hid_gamepad_state_t state;
 if (hid_gamepad_decode(&gamepad, data, length, &state)) {
     if (state.up)    { /* ... */ }
-    if (state.buttons & (1u << 14)) { /* button fifteen */ }
+    if (state.usage_buttons & (1u << 0))  { /* Button 1 */ }
+    if (state.buttons       & (1u << 14)) { /* whatever the fifteenth bit of the report is */ }
 }
 ```
 
-`state.buttons` numbers the buttons the way the gamepad reports them, and leaves out any that act
-as a d-pad, since those turned into directions.
+The state carries the buttons twice, because there are two questions to ask of them.
+
+`state.usage_buttons` sets bit `n` when the button the descriptor calls Button `n + 1` is down.
+This is the one to name a button by. A Stadia controller lists its buttons backwards, so the first
+bit of its report is Button 18 and the last is Button 1; anything that reads by bit position
+mislabels every button on it.
+
+`state.buttons` sets bit `b` when the button at position `b` of the report is down, which is what
+you want when you are looking at a report rather than at a device.
+
+Both leave out any button that acts as a d-pad, since those turned into directions.
 
 What a button *means* is deliberately not decided here. A launcher wants a confirm key, an
-emulator wants a fire button, and neither belongs in a report decoder. Map `state.buttons` at your
-own edge.
+emulator wants a fire button, and neither belongs in a report decoder. Map `state.usage_buttons` at
+your own edge.
 
 ### What the descriptor cannot tell you
 

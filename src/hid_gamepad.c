@@ -140,6 +140,11 @@ bool hid_gamepad_decode(const hid_gamepad_t* gamepad, const uint8_t* data, int l
 
         if (pressed) {
             state->buttons |= (uint32_t)1 << b;
+
+            uint16_t usage = (b < HID_LAYOUT_MAX_BUTTONS) ? gamepad->layout.button_usage[b] : 0;
+            if (usage >= 1 && usage <= 32) {
+                state->usage_buttons |= (uint32_t)1 << (usage - 1);
+            }
         }
     }
 
