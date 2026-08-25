@@ -217,6 +217,16 @@ device with an X axis and no Y, a device with no axis at all, buttons that never
 between, Slider and Dial usages that have to be stepped over, and a device with nothing usable in it
 whatsoever.
 
+Six more come from the Linux kernel's own HID drivers, at
+[drivers/hid](https://github.com/torvalds/linux/tree/master/drivers/hid). One of them, the BigBen
+PS3OFMINIPAD in `hid-bigbenff.c`, is the device's own descriptor, printed in full in the comment
+above its fixup. The other five are the descriptor the kernel *substitutes* for what the device
+sent, from `hid-steelseries.c`, `hid-lg.c`, `hid-pxrc.c`, `hid-vrc2.c` and `hid-dr.c`. That still
+makes them descriptors a HID parser is fed in earnest, and they reach corners no other device here
+does: a signed axis running from -1800 to 1800, a fourteen bit axis, twelve bit axes, four bit axes
+whose ranges stop at eleven and at three, usages named out of order inside one item so that the ones
+with no field here shift everything behind them, and adapters with two axes and no buttons at all.
+
 ## License
 
 MIT

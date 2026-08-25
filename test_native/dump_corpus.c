@@ -37,6 +37,12 @@ int main(void) {
     failed |= write_one("gamepad11", gamepad11_desc, gamepad11_len);
     failed |= write_one("gamepad12", gamepad12_desc, gamepad12_len);
     failed |= write_one("callbutton", callbutton_desc, callbutton_len);
+    failed |= write_one("gamepad13", gamepad13_desc, gamepad13_len);
+    failed |= write_one("gamepad14", gamepad14_desc, gamepad14_len);
+    failed |= write_one("wheel1", wheel1_desc, wheel1_len);
+    failed |= write_one("wheel2", wheel2_desc, wheel2_len);
+    failed |= write_one("rc1", rc1_desc, rc1_len);
+    failed |= write_one("rc2", rc2_desc, rc2_len);
 
     return failed;
 }
