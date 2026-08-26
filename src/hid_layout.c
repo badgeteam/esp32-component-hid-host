@@ -252,11 +252,6 @@ static hid_layout_t* report_slot(hid_layouts_t* layouts, uint16_t* bit_offsets, 
     return layout;
 }
 
-/// @brief Take one input item to be the buttons of a report, or more of the ones already found
-///
-/// Devices that report more buttons than a single item covers split them over two, which is
-/// only worth following when the second carries straight on from the first. Buttons split by
-/// padding or by another control cannot be numbered in one run, so the rest are left.
 /// @brief The page a usage sits on, its own when it named one and the global one otherwise
 static uint16_t usage_page_of(uint32_t usage, uint16_t global_page) {
     uint16_t page = HID_USAGE_PAGE_OF(usage);
@@ -281,6 +276,11 @@ static void name_buttons(hid_layout_t* layout, uint16_t first, uint16_t count, b
     }
 }
 
+/// @brief Take one input item to be the buttons of a report, or more of the ones already found
+///
+/// Devices that report more buttons than a single item covers split them over two, which is
+/// only worth following when the second carries straight on from the first. Buttons split by
+/// padding or by another control cannot be numbered in one run, so the rest are left.
 static void take_buttons(hid_layout_t* layout, uint16_t bit_offset, const globals_t* g, bool usage_range,
                          uint32_t usage_min, uint32_t usage_max, const uint32_t* usages, uint8_t usage_count) {
     // Buttons are one bit each; a device that packs them any other way is not followed

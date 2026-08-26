@@ -19,7 +19,7 @@ Add it to `idf_component.yml`:
 
 ```yaml
 dependencies:
-  badgeteam/hid-host: "^0.3.0"
+  badgeteam/hid-host: "^0.3.1"
 ```
 
 Ask the HID host driver for the report descriptor, parse it once when the device connects, then
@@ -183,29 +183,51 @@ if (gamepad.quirk != NULL && gamepad.quirk->enable_report != NULL) {
 
 ## Tests
 
-`hid_layout.c` is plain C with no ESP-IDF dependencies beyond logging, so it builds and runs on a
-host against report descriptors captured from real hardware:
+Both sources are plain C with no ESP-IDF dependency beyond logging, so everything builds and runs on
+a host. There is no ESP32 in the loop, which is what makes sanitizers and a fuzzer practical:
 
 ```
-make -C test_native test
+make -C test_native test             # the tests
+make -C test_native test-sanitized   # the same, under the address and undefined behaviour sanitizers
+make -C test_native fuzz             # random descriptors, needs clang, Ctrl-C to stop
 ```
 
-A report descriptor comes off a device and is as untrusted as input gets, so the same tests also run
-under the address and undefined behaviour sanitizers, and the parser is fed random descriptors:
+CI runs all three on every push, the fuzzer for two minutes. `make -C test_native fuzz-ci
+FUZZ_SECONDS=n` is the bounded run it uses.
 
-```
-make -C test_native test-sanitized
-make -C test_native fuzz
-```
+### What is in there
 
-Fuzzing needs clang. It starts from the captured descriptors, which `make -C test_native corpus`
-writes out, and keeps whatever it finds in `test_native/`. CI runs both on every push.
+| File | Holds |
+| --- | --- |
+| `test_hid_layout.c` | The parser: which fields a descriptor yields, where they sit, how wide they are |
+| `test_hid_gamepad.c` | The decoder: which directions and buttons a report turns into |
+| `test_descriptors.h` | Twenty seven report descriptors captured from real devices |
+| `test_reports.h` | Input reports captured alongside them |
+| `fuzz_hid_layout.c` | libFuzzer harness, parsing its input and then reading every field out of it |
+| `dump_corpus.c` | Writes the captured descriptors out as files to seed the fuzzer |
 
-The descriptors in `test_native/test_descriptors.h` come from actual devices: two mice, a Stadia
-controller, a DualShock 4 clone, a DualShock 3 and a Speedlink Competition Pro. The mice, the Stadia
-controller and the DualShock 4 clone were captured for
-[konsool-HID](https://github.com/annejan/konsool-HID/pull/2), the rest on a Tanmatsu and on a Linux
-host.
+The descriptors are the specification. Each test asserts the bit offsets its device implies, so the
+parser is correct when it agrees with what real hardware actually sends, and a change that breaks a
+device says which one. Reports are captured alongside the descriptors wherever possible, since a
+layout that parses and a layout that decodes correctly are two different claims.
+
+A handful of descriptors are hand-built inside the tests instead, for corners no device to hand
+covers: a full report table, a Push/Pop pair, buttons split across two items, ranges chosen to
+overflow the arithmetic.
+
+The fuzzer starts from the captured descriptors, which `make -C test_native corpus` writes out, and
+keeps whatever it finds in `test_native/`. It earns its keep — a signed overflow on a hostile
+logical range turned up within a minute of it first being pointed at the parser.
+
+Adding a device is the usual change here, and [CONTRIBUTING.md](CONTRIBUTING.md) walks through it.
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) covers how the parser is put together and why.
+
+### Where the descriptors came from
+
+Seven come from devices to hand: three mice, a Stadia controller, a DualShock 4 clone, a DualShock 3
+and a Speedlink Competition Pro. The mice, the Stadia controller and the DualShock 4 clone were
+captured for [konsool-HID](https://github.com/annejan/konsool-HID/pull/2), the rest on a Tanmatsu
+and on a Linux host.
 
 Nine more were taken from [DJm00n/ControllersInfo](https://github.com/DJm00n/ControllersInfo), which
 publishes descriptors dumped from the hardware, one directory per controller: an Xbox Wireless
