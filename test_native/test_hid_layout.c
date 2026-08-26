@@ -248,6 +248,11 @@ static void test_rejected(void) {
     const uint8_t long_item[] = {0xfe, 0x02, 0x00, 0x00, 0x00};
     assert(!hid_layout_parse(long_item, sizeof(long_item), &layout));
 
+    // A real device that describes nothing this parser wants: one bit on a vendor page, inside
+    // a consumer control collection, and three bytes of padding after it
+    assert(!hid_layout_parse(callbutton_desc, callbutton_len, &layout));
+    assert(!layout.valid);
+
     ESP_LOGI(TAG, "Rejected what it cannot use");
 }
 
@@ -793,6 +798,383 @@ static void test_racing_wheel(void) {
     ESP_LOGI(TAG, "Xbox 360 racing wheel");
 }
 
+/// Arcade stick: buttons and a hat switch, and no axis anywhere
+static void test_arcade_stick(void) {
+    hid_layout_t layout;
+    assert(hid_layout_parse(gamepad11_desc, gamepad11_len, &layout));
+
+    assert(layout.report_id == 0);
+    check_field(&layout.buttons, 0, 1);
+    assert(layout.button_count == 10);
+    check_field(&layout.hat, 16, 4);
+    assert(!layout.x.present);
+    assert(!layout.y.present);
+
+    // Its buttons come with no logical minimum or maximum at all, so the globals in force are
+    // still nought and nought. A button is one bit either way, and the parser says so itself
+    // rather than believing a range that would make every button read as unpressed.
+    assert(layout.buttons.logical_min == 0);
+    assert(layout.buttons.logical_max == 1);
+    assert(hid_layout_read_button(pad11_reports[1], 4, &layout, 0));
+    assert(!hid_layout_read_button(pad11_reports[1], 4, &layout, 1));
+    for (int b = 0; b < 10; b++) {
+        assert(hid_layout_read_button(pad11_reports[2], 4, &layout, b));
+    }
+
+    // An eleventh button is not one it has
+    assert(!hid_layout_read_button(pad11_reports[2], 4, &layout, 10));
+
+    ESP_LOGI(TAG, "Arcade stick");
+}
+
+/// Guitar controller: a Slider and a Dial, which are generic desktop usages with no field here
+static void test_guitar(void) {
+    hid_layout_t layout;
+    assert(hid_layout_parse(gamepad12_desc, gamepad12_len, &layout));
+
+    assert(layout.report_id == 0);
+
+    // The whammy bar is an Rz. The Slider at bit sixteen and the Dial at bit thirty-two are not
+    // taken, but they still take up room, so what follows has to be found past them.
+    check_field(&layout.rz, 0, 16);
+    assert(!layout.x.present);
+    assert(!layout.y.present);
+    assert(!layout.z.present);
+    assert(!layout.wheel.present);
+    check_field(&layout.buttons, 48, 1);
+    assert(layout.button_count == 10);
+    check_field(&layout.hat, 64, 4);
+
+    assert(hid_layout_read(pad12_reports[0], 10, &layout.rz) == 0x8000);
+    assert(hid_layout_read(pad12_reports[2], 10, &layout.rz) == 65535);
+
+    bool up = false, down = false, left = false, right = false;
+    hid_layout_hat_directions(pad12_reports[1], 10, &layout.hat, &up, &down, &left, &right);
+    assert(down && !up && !left && !right);
+
+    ESP_LOGI(TAG, "Guitar controller");
+}
+
+/// BigBen pad: buttons before the hat switch, and the sticks behind both
+static void test_bigben(void) {
+    hid_layout_t layout;
+    assert(hid_layout_parse(gamepad13_desc, gamepad13_len, &layout));
+
+    assert(layout.report_id == 0);
+    check_field(&layout.buttons, 0, 1);
+    assert(layout.button_count == 13);
+    check_field(&layout.hat, 16, 4);
+    check_field(&layout.x, 24, 8);
+    check_field(&layout.y, 32, 8);
+    check_field(&layout.z, 40, 8);
+    check_field(&layout.rz, 48, 8);
+
+    // Three padding bits sit between the thirteen buttons and the hat switch, and four more
+    // between the hat and the sticks. Both have to be counted or nothing lines up.
+    assert(hid_layout_read(pad13_reports[2], 27, &layout.x) == 0);
+    assert(hid_layout_read(pad13_reports[2], 27, &layout.y) == 255);
+    assert(hid_layout_read_button(pad13_reports[1], 27, &layout, 0));
+
+    // Twelve vendor bytes and then four vendor axes follow the sticks, and none of them is
+    // anything this parser takes
+    assert(!layout.rx.present);
+    assert(!layout.ry.present);
+    assert(!layout.wheel.present);
+
+    ESP_LOGI(TAG, "BigBen pad");
+}
+
+/// SteelSeries SRW-S1: a signed axis, twelve bit axes and buttons starting at bit forty seven
+static void test_srws1(void) {
+    hid_layout_t layout;
+    assert(hid_layout_parse(wheel1_desc, wheel1_len, &layout));
+
+    check_field(&layout.x, 0, 16);
+    assert(layout.x.logical_min == -1800);
+    assert(layout.x.logical_max == 1800);
+    check_field(&layout.y, 16, 12);
+    check_field(&layout.z, 28, 12);
+    check_field(&layout.hat, 40, 4);
+    check_field(&layout.buttons, 47, 1);
+    assert(layout.button_count == 17);
+
+    // Two more axes, four bits each, whose ranges stop nowhere near a power of two
+    check_field(&layout.rx, 64, 4);
+    assert(layout.rx.logical_max == 11);
+    check_field(&layout.rz, 72, 4);
+    assert(layout.rz.logical_max == 3);
+
+    // A negative logical minimum means the field is signed, so the top half of its range has to
+    // come out below nought rather than as a large positive number
+    assert(hid_layout_read(wheel1_reports[2], 16, &layout.x) == -1800);
+    assert(hid_layout_read(wheel1_reports[3], 16, &layout.x) == 1800);
+    assert(hid_layout_read(wheel1_reports[0], 16, &layout.x) == 0);
+
+    // Its middle is nought rather than half of its range, and a quarter of the range either side
+    // of that is still not a direction
+    bool left = false, right = false;
+    hid_layout_axis_directions(wheel1_reports[0], 16, &layout.x, &left, &right);
+    assert(!left && !right);
+    hid_layout_axis_directions(wheel1_reports[2], 16, &layout.x, &left, &right);
+    assert(left && !right);
+    hid_layout_axis_directions(wheel1_reports[3], 16, &layout.x, &left, &right);
+    assert(!left && right);
+
+    // Seventeen buttons that start seven bits into a byte and run over two more
+    assert(hid_layout_read_button(wheel1_reports[2], 16, &layout, 0));
+    assert(!hid_layout_read_button(wheel1_reports[2], 16, &layout, 1));
+    for (int b = 0; b < 17; b++) {
+        assert(hid_layout_read_button(wheel1_reports[3], 16, &layout, b));
+    }
+    assert(!hid_layout_read_button(wheel1_reports[3], 16, &layout, 17));
+
+    ESP_LOGI(TAG, "SteelSeries SRW-S1");
+}
+
+/// Driving Force Pro: a fourteen bit axis with the buttons packed in behind it
+static void test_driving_force_pro(void) {
+    hid_layout_t layout;
+    assert(hid_layout_parse(wheel2_desc, wheel2_len, &layout));
+
+    check_field(&layout.x, 0, 14);
+    assert(layout.x.logical_max == 16383);
+    check_field(&layout.buttons, 14, 1);
+    assert(layout.button_count == 14);
+    check_field(&layout.hat, 28, 4);
+    check_field(&layout.y, 40, 8);
+    check_field(&layout.rz, 48, 8);
+
+    assert(hid_layout_read(wheel2_reports[0], 8, &layout.x) == 8192);
+    assert(hid_layout_read(wheel2_reports[1], 8, &layout.x) == 0);
+    assert(hid_layout_read(wheel2_reports[2], 8, &layout.x) == 16383);
+
+    // The first button is the two bits after the axis, in the same byte as the top of it
+    assert(hid_layout_read_button(wheel2_reports[1], 8, &layout, 0));
+    assert(!hid_layout_read_button(wheel2_reports[1], 8, &layout, 1));
+
+    ESP_LOGI(TAG, "Driving Force Pro");
+}
+
+/// PhoenixRC: usages this parser has no field for, in the middle of an item rather than after it
+static void test_phoenixrc(void) {
+    hid_layout_t layout;
+    assert(hid_layout_parse(rc1_desc, rc1_len, &layout));
+
+    // One item names X, Slider, Y, Z, Rx, Ry, Rz, Dial. The Slider is second and the Dial last,
+    // and neither has a field here, but both take their turn, so Y is a byte further along than
+    // a reader that skipped them would look.
+    check_field(&layout.x, 0, 8);
+    check_field(&layout.y, 16, 8);
+    check_field(&layout.z, 24, 8);
+    check_field(&layout.rx, 32, 8);
+    check_field(&layout.ry, 40, 8);
+    check_field(&layout.rz, 48, 8);
+
+    // The report that proves it: the Slider is hard over and Y is centered, so anything reading
+    // Y one byte early gets 255 instead
+    assert(hid_layout_read(rc1_reports[1], 8, &layout.x) == 0);
+    assert(hid_layout_read(rc1_reports[1], 8, &layout.y) == 0x80);
+    assert(hid_layout_read(rc1_reports[2], 8, &layout.y) == 0);
+
+    assert(!layout.buttons.present);
+    assert(!layout.hat.present);
+    assert(layout.button_count == 0);
+
+    ESP_LOGI(TAG, "PhoenixRC adapter");
+}
+
+/// VRC-2: two axes and nothing else whatsoever
+static void test_vrc2(void) {
+    hid_layout_t layout;
+    assert(hid_layout_parse(rc2_desc, rc2_len, &layout));
+
+    check_field(&layout.x, 0, 16);
+    check_field(&layout.y, 16, 16);
+    assert(layout.x.logical_max == 2047);
+    assert(!layout.hat.present);
+    assert(!layout.buttons.present);
+    assert(layout.button_count == 0);
+
+    // No buttons means no button reads, whichever one is asked for
+    assert(!hid_layout_read_button(rc2_reports[1], 7, &layout, 0));
+    assert(!hid_layout_read_button(rc2_reports[1], 7, &layout, 31));
+
+    bool low = false, high = false;
+    hid_layout_axis_directions(rc2_reports[0], 7, &layout.x, &low, &high);
+    assert(!low && !high);
+    hid_layout_axis_directions(rc2_reports[1], 7, &layout.x, &low, &high);
+    assert(low && !high);
+    hid_layout_axis_directions(rc2_reports[2], 7, &layout.y, &low, &high);
+    assert(low && !high);
+
+    ESP_LOGI(TAG, "VRC-2 adapter");
+}
+
+/// DragonRise JS19: three bytes of padding before anything worth reading
+static void test_dragonrise(void) {
+    hid_layout_t layout;
+    assert(hid_layout_parse(gamepad14_desc, gamepad14_len, &layout));
+
+    check_field(&layout.x, 24, 8);
+    check_field(&layout.y, 32, 8);
+    check_field(&layout.buttons, 44, 1);
+    assert(layout.button_count == 10);
+    assert(!layout.hat.present);
+
+    // Four padding bits sit between the sticks and the buttons, so the first button is the fifth
+    // bit of its byte rather than the first
+    assert(hid_layout_read_button(pad14_reports[1], 8, &layout, 0));
+    assert(!hid_layout_read_button(pad14_reports[1], 8, &layout, 1));
+    for (int b = 0; b < 10; b++) {
+        assert(hid_layout_read_button(pad14_reports[2], 8, &layout, b));
+    }
+
+    // Ten more button bits follow, but the descriptor calls them constant, so they are padding
+    assert(layout.button_count == 10);
+
+    ESP_LOGI(TAG, "DragonRise JS19");
+}
+
+/// iBuffalo SNES pad: a d-pad that reports through a pair of axes
+static void test_ibuffalo(void) {
+    hid_layout_t layout;
+    assert(hid_layout_parse(gamepad15_desc, gamepad15_len, &layout));
+
+    assert(layout.report_id == 0);
+    check_field(&layout.x, 0, 8);
+    check_field(&layout.y, 8, 8);
+    check_field(&layout.buttons, 16, 1);
+    assert(layout.button_count == 8);
+    assert(!layout.hat.present);
+
+    // Its axes are absolute, so they read as directions, even though the thing being pushed is a
+    // d-pad and only ever sends one of three values
+    assert(!layout.x.relative);
+    bool low = false, high = false;
+    hid_layout_axis_directions(pad15_reports[0], 8, &layout.x, &low, &high);
+    assert(!low && !high);
+    hid_layout_axis_directions(pad15_reports[1], 8, &layout.x, &low, &high);
+    assert(low && !high);
+    hid_layout_axis_directions(pad15_reports[2], 8, &layout.y, &low, &high);
+    assert(!low && high);
+
+    // Forty padding bits follow the eight buttons, and none of them is a ninth
+    assert(!hid_layout_read_button(pad15_reports[2], 8, &layout, 8));
+
+    ESP_LOGI(TAG, "iBuffalo SNES pad");
+}
+
+/// DragonRise JS19 as it describes itself: X named five times over
+static void test_dragonrise_original(void) {
+    hid_layout_t layout;
+    assert(hid_layout_parse(gamepad16_desc, gamepad16_len, &layout));
+
+    // One item names X, X, X, X, Y across five bytes. Only the first X can be taken, so read
+    // literally the stick sits in the first byte and Y in the fifth. The kernel disagrees and
+    // replaces the whole descriptor, which is why gamepad14_desc puts X in the fourth byte.
+    check_field(&layout.x, 0, 8);
+    check_field(&layout.y, 32, 8);
+    assert(hid_layout_read(pad16_reports[1], 8, &layout.x) == 0);
+    assert(hid_layout_read(pad16_reports[1], 8, &layout.y) == 0x80);
+
+    // Four bits shaped exactly like a hat switch sit between the axes and the buttons, with a
+    // range of nought to seven and the null flag set, but the usage the descriptor gives them is
+    // nought, which names nothing. It is not a hat, and the buttons behind it still have to be
+    // found past it.
+    assert(!layout.hat.present);
+    check_field(&layout.buttons, 44, 1);
+    assert(layout.button_count == 10);
+    assert(hid_layout_read_button(pad16_reports[1], 8, &layout, 0));
+
+    // Ten vendor bits follow the buttons, and are not eleven more of them
+    assert(!hid_layout_read_button(pad16_reports[2], 8, &layout, 10));
+
+    ESP_LOGI(TAG, "DragonRise JS19, as the device tells it");
+}
+
+/// Thrustmaster T.16000M: fourteen bit axes, each with two bits of padding behind it
+static void test_t16000m(void) {
+    hid_layout_t layout;
+    assert(hid_layout_parse(stick1_desc, stick1_len, &layout));
+
+    check_field(&layout.buttons, 0, 1);
+    assert(layout.button_count == 16);
+    check_field(&layout.hat, 16, 4);
+    check_field(&layout.x, 24, 14);
+    check_field(&layout.y, 40, 14);
+    check_field(&layout.rz, 56, 8);
+
+    // Two padding bits after each axis, so Y starts sixteen bits after X rather than fourteen
+    assert(layout.x.logical_max == 16383);
+    assert(hid_layout_read(stick1_reports[0], 64, &layout.x) == 8192);
+    assert(hid_layout_read(stick1_reports[2], 64, &layout.x) == 0);
+    assert(hid_layout_read(stick1_reports[2], 64, &layout.y) == 16383);
+
+    // The throttle is a Slider, which has no field here, and it shares its item with the twist
+    assert(hid_layout_read(stick1_reports[2], 64, &layout.rz) == 255);
+
+    ESP_LOGI(TAG, "Thrustmaster T.16000M");
+}
+
+/// WingMan Force 3D: vendor data between the stick and the hat switch
+static void test_wingman(void) {
+    hid_layout_t layout;
+    assert(hid_layout_parse(stick2_desc, stick2_len, &layout));
+
+    check_field(&layout.x, 0, 8);
+    check_field(&layout.y, 8, 8);
+    check_field(&layout.hat, 20, 4);
+    check_field(&layout.rz, 24, 8);
+    check_field(&layout.buttons, 32, 1);
+    assert(layout.button_count == 7);
+
+    // The nibble at bit sixteen is vendor data. The second report has it set to all ones while
+    // the hat is pushed east, so anything reading the hat from the wrong half of that byte gets
+    // fifteen and calls it centered.
+    bool up = false, down = false, left = false, right = false;
+    hid_layout_hat_directions(stick2_reports[1], 7, &layout.hat, &up, &down, &left, &right);
+    assert(right && !up && !down && !left);
+
+    ESP_LOGI(TAG, "WingMan Force 3D");
+}
+
+/// X-56 Rhino throttle: more buttons than this parser names
+static void test_x56_throttle(void) {
+    hid_layout_t layout;
+    assert(hid_layout_parse(stick3_desc, stick3_len, &layout));
+
+    // Two ten bit axes packed together, so Y starts ten bits in
+    check_field(&layout.x, 0, 10);
+    check_field(&layout.y, 10, 10);
+    assert(layout.x.logical_max == 1023);
+    assert(hid_layout_read(stick3_reports[0], 13, &layout.x) == 512);
+    assert(hid_layout_read(stick3_reports[1], 13, &layout.x) == 0);
+    assert(hid_layout_read(stick3_reports[2], 13, &layout.y) == 1023);
+
+    // Thirty six buttons. Every one of them can be read, but only the first
+    // HID_LAYOUT_MAX_BUTTONS of them keep the number the descriptor gave them.
+    check_field(&layout.buttons, 20, 1);
+    assert(layout.button_count == 36);
+    for (int b = 0; b < HID_LAYOUT_MAX_BUTTONS; b++) {
+        assert(layout.button_usage[b] == b + 1);
+    }
+    assert(hid_layout_read_button(stick3_reports[1], 13, &layout, 0));
+    assert(!hid_layout_read_button(stick3_reports[1], 13, &layout, 1));
+    assert(hid_layout_read_button(stick3_reports[1], 13, &layout, 35));
+    for (int b = 0; b < 36; b++) {
+        assert(hid_layout_read_button(stick3_reports[2], 13, &layout, b));
+    }
+    assert(!hid_layout_read_button(stick3_reports[2], 13, &layout, 36));
+
+    // Six more axes follow, named Z, Rx, Rz, Ry, Slider, Dial in that order
+    check_field(&layout.z, 56, 8);
+    check_field(&layout.rx, 64, 8);
+    check_field(&layout.rz, 72, 8);
+    check_field(&layout.ry, 80, 8);
+
+    ESP_LOGI(TAG, "X-56 Rhino throttle");
+}
+
 int main(void) {
     test_logitech_m705();
     test_trust_mouse();
@@ -807,6 +1189,19 @@ int main(void) {
     test_luna();
     test_dualsense();
     test_racing_wheel();
+    test_arcade_stick();
+    test_guitar();
+    test_bigben();
+    test_srws1();
+    test_driving_force_pro();
+    test_phoenixrc();
+    test_vrc2();
+    test_dragonrise();
+    test_ibuffalo();
+    test_dragonrise_original();
+    test_t16000m();
+    test_wingman();
+    test_x56_throttle();
     test_extra_axes();
     test_simulation_and_consumer();
     test_multiple_reports();

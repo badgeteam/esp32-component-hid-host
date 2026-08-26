@@ -273,6 +273,257 @@ static void test_racing_wheel(void) {
     ESP_LOGI(TAG, "Xbox 360 racing wheel");
 }
 
+/// A stick with no axes at all still has directions, because it has a hat switch
+static void test_arcade_stick(void) {
+    assert(hid_gamepad_open(&gamepad, gamepad11_desc, gamepad11_len, UNKNOWN_VID, UNKNOWN_PID));
+    assert(!gamepad.layout.x.present);
+    assert(!gamepad.layout.y.present);
+
+    check(feed(pad11_reports[0], 4), false, false, false, false, 0);
+
+    // Hat north, first button. Nothing but the hat can move a direction here, so every one of
+    // them is a d-pad press.
+    hid_gamepad_state_t pressed = feed(pad11_reports[1], 4);
+    check(pressed, true, false, false, false, BUTTON(1));
+    assert(pressed.dpad_up);
+
+    // Hat north west, so up and left together, with all ten buttons held
+    hid_gamepad_state_t corner = feed(pad11_reports[2], 4);
+    check(corner, true, false, true, false, 0x3ff);
+    assert(corner.dpad_up && corner.dpad_left);
+    assert(corner.usage_buttons == 0x3ff);
+
+    hid_gamepad_close(&gamepad);
+    ESP_LOGI(TAG, "Arcade stick");
+}
+
+/// Guitar controller: a hat switch, ten buttons, and a whammy bar that is none of the above
+static void test_guitar(void) {
+    assert(hid_gamepad_open(&gamepad, gamepad12_desc, gamepad12_len, UNKNOWN_VID, UNKNOWN_PID));
+
+    check(feed(pad12_reports[0], 10), false, false, false, false, 0);
+
+    hid_gamepad_state_t pressed = feed(pad12_reports[1], 10);
+    check(pressed, false, true, false, false, BUTTON(1));
+    assert(pressed.dpad_down);
+
+    // The whammy bar hard over is not a direction, whatever else is going on
+    hid_gamepad_state_t whammy = feed(pad12_reports[2], 10);
+    check(whammy, false, false, false, true, 0x3ff);
+    assert(whammy.dpad_right);
+
+    hid_gamepad_close(&gamepad);
+    ESP_LOGI(TAG, "Guitar controller");
+}
+
+/// BigBen pad: the one descriptor here that came off the device rather than out of a driver
+static void test_bigben(void) {
+    assert(hid_gamepad_open(&gamepad, gamepad13_desc, gamepad13_len, UNKNOWN_VID, UNKNOWN_PID));
+
+    check(feed(pad13_reports[0], 27), false, false, false, false, 0);
+
+    hid_gamepad_state_t pressed = feed(pad13_reports[1], 27);
+    check(pressed, true, false, false, false, BUTTON(1));
+    assert(pressed.dpad_up);
+
+    // Left stick hard left and down, all thirteen buttons, hat back at rest
+    hid_gamepad_state_t all = feed(pad13_reports[2], 27);
+    check(all, false, true, true, false, 0x1fff);
+    assert(!all.dpad_down && !all.dpad_left);
+    assert(all.button_count == 13);
+
+    hid_gamepad_close(&gamepad);
+    ESP_LOGI(TAG, "BigBen pad");
+}
+
+/// SteelSeries SRW-S1: a signed axis, so its middle is nought rather than half of its range
+static void test_srws1(void) {
+    assert(hid_gamepad_open(&gamepad, wheel1_desc, wheel1_len, UNKNOWN_VID, UNKNOWN_PID));
+
+    check(feed(wheel1_reports[0], 16), false, false, false, false, 0);
+
+    // Hat west with the wheel straight
+    hid_gamepad_state_t hat = feed(wheel1_reports[1], 16);
+    check(hat, false, false, true, false, 0);
+    assert(hat.dpad_left);
+
+    // Wheel hard left with the hat at rest, which is the same direction from the other source
+    hid_gamepad_state_t turned = feed(wheel1_reports[2], 16);
+    check(turned, false, false, true, false, BUTTON(1));
+    assert(!turned.dpad_left);
+
+    // Hard right, and every one of its seventeen buttons. Y is a pedal here rather than a stick,
+    // but the parser has no way to know that and reports it pushed all the same.
+    hid_gamepad_state_t all = feed(wheel1_reports[3], 16);
+    check(all, true, false, false, true, 0x1ffff);
+    assert(all.usage_buttons == 0x1ffff);
+    assert(all.button_count == 17);
+
+    hid_gamepad_close(&gamepad);
+    ESP_LOGI(TAG, "SteelSeries SRW-S1");
+}
+
+/// Driving Force Pro: fourteen bits of steering, then the buttons
+static void test_driving_force_pro(void) {
+    assert(hid_gamepad_open(&gamepad, wheel2_desc, wheel2_len, UNKNOWN_VID, UNKNOWN_PID));
+
+    check(feed(wheel2_reports[0], 8), false, false, false, false, 0);
+    check(feed(wheel2_reports[1], 8), false, false, true, false, BUTTON(1));
+
+    hid_gamepad_state_t all = feed(wheel2_reports[2], 8);
+    check(all, false, true, false, true, 0x3fff);
+    assert(all.dpad_down && !all.dpad_right);
+
+    hid_gamepad_close(&gamepad);
+    ESP_LOGI(TAG, "Driving Force Pro");
+}
+
+/// A device with axes and no buttons at all is still something to steer with
+static void test_adapters_without_buttons(void) {
+    assert(hid_gamepad_open(&gamepad, rc1_desc, rc1_len, UNKNOWN_VID, UNKNOWN_PID));
+
+    check(feed(rc1_reports[0], 8), false, false, false, false, 0);
+
+    // X hard over with the Slider between it and Y hard over the other way. Only X is a
+    // direction, and Y has to be read from where it really is.
+    hid_gamepad_state_t left = feed(rc1_reports[1], 8);
+    check(left, false, false, true, false, 0);
+    assert(left.button_count == 0);
+
+    check(feed(rc1_reports[2], 8), true, false, false, false, 0);
+    hid_gamepad_close(&gamepad);
+
+    assert(hid_gamepad_open(&gamepad, rc2_desc, rc2_len, UNKNOWN_VID, UNKNOWN_PID));
+    check(feed(rc2_reports[0], 7), false, false, false, false, 0);
+    check(feed(rc2_reports[1], 7), false, true, true, false, 0);
+    check(feed(rc2_reports[2], 7), true, false, false, true, 0);
+
+    hid_gamepad_close(&gamepad);
+    ESP_LOGI(TAG, "Adapters with no buttons");
+}
+
+/// DragonRise JS19: padding before the sticks, and more before the buttons
+static void test_dragonrise(void) {
+    assert(hid_gamepad_open(&gamepad, gamepad14_desc, gamepad14_len, UNKNOWN_VID, UNKNOWN_PID));
+    assert(!gamepad.layout.hat.present);
+
+    check(feed(pad14_reports[0], 8), false, false, false, false, 0);
+
+    // Nothing here is a d-pad, so a direction can only ever come from the stick
+    hid_gamepad_state_t left = feed(pad14_reports[1], 8);
+    check(left, false, false, true, false, BUTTON(1));
+    assert(!left.dpad_left);
+
+    hid_gamepad_state_t all = feed(pad14_reports[2], 8);
+    check(all, false, true, false, false, 0x3ff);
+    assert(all.usage_buttons == 0x3ff);
+
+    hid_gamepad_close(&gamepad);
+    ESP_LOGI(TAG, "DragonRise JS19");
+}
+
+/// iBuffalo SNES pad: a d-pad pushed through a pair of axes
+static void test_ibuffalo(void) {
+    assert(hid_gamepad_open(&gamepad, gamepad15_desc, gamepad15_len, UNKNOWN_VID, UNKNOWN_PID));
+    assert(!gamepad.layout.hat.present);
+
+    check(feed(pad15_reports[0], 8), false, false, false, false, 0);
+
+    // Nothing here is a hat switch or a d-pad in the buttons, so a direction is only ever a
+    // pushed axis and dpad_ stays clear however hard the pad is pressed
+    hid_gamepad_state_t left = feed(pad15_reports[1], 8);
+    check(left, false, false, true, false, BUTTON(1));
+    assert(!left.dpad_left);
+
+    hid_gamepad_state_t corner = feed(pad15_reports[2], 8);
+    check(corner, false, true, false, true, 0xff);
+    assert(!corner.dpad_down && !corner.dpad_right);
+
+    hid_gamepad_close(&gamepad);
+    ESP_LOGI(TAG, "iBuffalo SNES pad");
+}
+
+/// DragonRise JS19: the same pad decoded from its own descriptor rather than the kernel's
+static void test_dragonrise_original(void) {
+    assert(hid_gamepad_open(&gamepad, gamepad16_desc, gamepad16_len, UNKNOWN_VID, UNKNOWN_PID));
+
+    // Its own descriptor puts the stick in the first byte, so that is where the direction comes
+    // from. The replacement further up this file reads the fourth byte instead, and the same
+    // report decodes the other way round: this one is left, that one is right.
+    assert(gamepad.layout.x.bit_offset == 0);
+
+    check(feed(pad16_reports[0], 8), false, false, false, false, 0);
+    check(feed(pad16_reports[1], 8), false, false, true, false, BUTTON(1));
+    check(feed(pad16_reports[2], 8), false, true, false, false, 0x3ff);
+
+    hid_gamepad_close(&gamepad);
+
+    // The kernel's version of the same pad, fed the same report, goes the other way
+    assert(hid_gamepad_open(&gamepad, gamepad14_desc, gamepad14_len, UNKNOWN_VID, UNKNOWN_PID));
+    assert(gamepad.layout.x.bit_offset == 24);
+    check(feed(pad16_reports[1], 8), false, false, false, true, BUTTON(1));
+
+    hid_gamepad_close(&gamepad);
+    ESP_LOGI(TAG, "DragonRise JS19, both ways round");
+}
+
+/// Thrustmaster T.16000M: a stick whose axes do not sit on byte boundaries
+static void test_t16000m(void) {
+    assert(hid_gamepad_open(&gamepad, stick1_desc, stick1_len, UNKNOWN_VID, UNKNOWN_PID));
+
+    check(feed(stick1_reports[0], 64), false, false, false, false, 0);
+
+    hid_gamepad_state_t hat = feed(stick1_reports[1], 64);
+    check(hat, false, false, true, false, BUTTON(1));
+    assert(hat.dpad_left);
+
+    hid_gamepad_state_t all = feed(stick1_reports[2], 64);
+    check(all, false, true, true, false, 0xffff);
+    assert(!all.dpad_left && !all.dpad_down);
+    assert(all.button_count == 16);
+
+    hid_gamepad_close(&gamepad);
+    ESP_LOGI(TAG, "Thrustmaster T.16000M");
+}
+
+/// WingMan Force 3D: a hat switch in the top half of a byte whose bottom half is vendor data
+static void test_wingman(void) {
+    assert(hid_gamepad_open(&gamepad, stick2_desc, stick2_len, UNKNOWN_VID, UNKNOWN_PID));
+
+    check(feed(stick2_reports[0], 7), false, false, false, false, 0);
+
+    hid_gamepad_state_t east = feed(stick2_reports[1], 7);
+    check(east, false, false, false, true, BUTTON(1));
+    assert(east.dpad_right);
+
+    check(feed(stick2_reports[2], 7), false, true, true, false, 0x7f);
+
+    hid_gamepad_close(&gamepad);
+    ESP_LOGI(TAG, "WingMan Force 3D");
+}
+
+/// X-56 Rhino throttle: thirty six buttons, of which a caller sees the first thirty two
+static void test_x56_throttle(void) {
+    assert(hid_gamepad_open(&gamepad, stick3_desc, stick3_len, UNKNOWN_VID, UNKNOWN_PID));
+
+    check(feed(stick3_reports[0], 13), false, false, false, false, 0);
+
+    // The first button and the thirty sixth are held. Only the first fits in the bitmap, and the
+    // count still says how many the pad really has.
+    hid_gamepad_state_t some = feed(stick3_reports[1], 13);
+    check(some, false, false, true, false, BUTTON(1));
+    assert(some.button_count == 36);
+
+    // Every one of the thirty six held fills the bitmap and no more
+    hid_gamepad_state_t all = feed(stick3_reports[2], 13);
+    check(all, false, true, false, false, 0xffffffff);
+    assert(all.usage_buttons == 0xffffffff);
+    assert(all.button_count == 36);
+
+    hid_gamepad_close(&gamepad);
+    ESP_LOGI(TAG, "X-56 Rhino throttle");
+}
+
 int main(void) {
     test_stadia();
     test_dualshock4_clone();
@@ -284,6 +535,18 @@ int main(void) {
     test_luna();
     test_dualsense();
     test_racing_wheel();
+    test_arcade_stick();
+    test_guitar();
+    test_bigben();
+    test_srws1();
+    test_driving_force_pro();
+    test_adapters_without_buttons();
+    test_dragonrise();
+    test_ibuffalo();
+    test_dragonrise_original();
+    test_t16000m();
+    test_wingman();
+    test_x56_throttle();
     test_mice_are_rejected();
 
     printf("All gamepad tests passed\n");

@@ -207,12 +207,37 @@ controller and the DualShock 4 clone were captured for
 [konsool-HID](https://github.com/annejan/konsool-HID/pull/2), the rest on a Tanmatsu and on a Linux
 host.
 
-Six more were taken from [DJm00n/ControllersInfo](https://github.com/DJm00n/ControllersInfo), which
+Nine more were taken from [DJm00n/ControllersInfo](https://github.com/DJm00n/ControllersInfo), which
 publishes descriptors dumped from the hardware, one directory per controller: an Xbox Wireless
 Controller, a Switch Pro Controller, an Xbox 360 wired controller, an Amazon Luna controller, a
-DualSense and an Xbox 360 racing wheel. Between them they cover sixteen bit axes, analog triggers on
-the simulation page, a hat switch starting mid byte, a hat a whole byte wide, four byte usages that
-name their own page, and a device with an X axis and no Y.
+DualSense, an Xbox 360 racing wheel, an Xbox 360 arcade stick, an Xbox 360 guitar and an Xbox 360
+call button. Between them they cover sixteen bit axes, analog triggers on the simulation page, a hat
+switch starting mid byte, a hat a whole byte wide, four byte usages that name their own page, a
+device with an X axis and no Y, a device with no axis at all, buttons that never say what they range
+between, Slider and Dial usages that have to be stepped over, and a device with nothing usable in it
+whatsoever.
+
+Six more come from the Linux kernel's own HID drivers, at
+[drivers/hid](https://github.com/torvalds/linux/tree/master/drivers/hid). One of them, the BigBen
+PS3OFMINIPAD in `hid-bigbenff.c`, is the device's own descriptor, printed in full in the comment
+above its fixup. The other five are the descriptor the kernel *substitutes* for what the device
+sent, from `hid-steelseries.c`, `hid-lg.c`, `hid-pxrc.c`, `hid-vrc2.c` and `hid-dr.c`. That still
+makes them descriptors a HID parser is fed in earnest, and they reach corners no other device here
+does: a signed axis running from -1800 to 1800, a fourteen bit axis, twelve bit axes, four bit axes
+whose ranges stop at eleven and at three, usages named out of order inside one item so that the ones
+with no field here shift everything behind them, and adapters with two axes and no buttons at all.
+
+Five more are dumps from the hardware, from wherever somebody has published one: an
+[iBuffalo BSGP801](https://github.com/fasteddy516/CircuitPython_JoystickXL) SNES pad whose d-pad is
+a pair of axes rather than a hat, the
+[descriptor a DragonRise JS19 really hands out](https://github.com/spbnick/dragonrise_joystick_0011_driver)
+next to the one the kernel puts in its place, a
+[Thrustmaster T.16000M](https://github.com/ivyl/input-db) flight stick with fourteen bit axes two
+bits shy of a byte boundary, a
+[Logitech WingMan Force 3D](https://github.com/libusb/hidapi/tree/master/windows/test/data) with
+vendor data between its stick and its hat switch, and a
+[Saitek X-56 Rhino throttle](https://github.com/MNS26/X56Linux) with thirty six buttons, more than
+this parser names or a caller's bitmap holds.
 
 ## License
 
