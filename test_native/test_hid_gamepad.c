@@ -422,6 +422,108 @@ static void test_dragonrise(void) {
     ESP_LOGI(TAG, "DragonRise JS19");
 }
 
+/// iBuffalo SNES pad: a d-pad pushed through a pair of axes
+static void test_ibuffalo(void) {
+    assert(hid_gamepad_open(&gamepad, gamepad15_desc, gamepad15_len, UNKNOWN_VID, UNKNOWN_PID));
+    assert(!gamepad.layout.hat.present);
+
+    check(feed(pad15_reports[0], 8), false, false, false, false, 0);
+
+    // Nothing here is a hat switch or a d-pad in the buttons, so a direction is only ever a
+    // pushed axis and dpad_ stays clear however hard the pad is pressed
+    hid_gamepad_state_t left = feed(pad15_reports[1], 8);
+    check(left, false, false, true, false, BUTTON(1));
+    assert(!left.dpad_left);
+
+    hid_gamepad_state_t corner = feed(pad15_reports[2], 8);
+    check(corner, false, true, false, true, 0xff);
+    assert(!corner.dpad_down && !corner.dpad_right);
+
+    hid_gamepad_close(&gamepad);
+    ESP_LOGI(TAG, "iBuffalo SNES pad");
+}
+
+/// DragonRise JS19: the same pad decoded from its own descriptor rather than the kernel's
+static void test_dragonrise_original(void) {
+    assert(hid_gamepad_open(&gamepad, gamepad16_desc, gamepad16_len, UNKNOWN_VID, UNKNOWN_PID));
+
+    // Its own descriptor puts the stick in the first byte, so that is where the direction comes
+    // from. The replacement further up this file reads the fourth byte instead, and the same
+    // report decodes the other way round: this one is left, that one is right.
+    assert(gamepad.layout.x.bit_offset == 0);
+
+    check(feed(pad16_reports[0], 8), false, false, false, false, 0);
+    check(feed(pad16_reports[1], 8), false, false, true, false, BUTTON(1));
+    check(feed(pad16_reports[2], 8), false, true, false, false, 0x3ff);
+
+    hid_gamepad_close(&gamepad);
+
+    // The kernel's version of the same pad, fed the same report, goes the other way
+    assert(hid_gamepad_open(&gamepad, gamepad14_desc, gamepad14_len, UNKNOWN_VID, UNKNOWN_PID));
+    assert(gamepad.layout.x.bit_offset == 24);
+    check(feed(pad16_reports[1], 8), false, false, false, true, BUTTON(1));
+
+    hid_gamepad_close(&gamepad);
+    ESP_LOGI(TAG, "DragonRise JS19, both ways round");
+}
+
+/// Thrustmaster T.16000M: a stick whose axes do not sit on byte boundaries
+static void test_t16000m(void) {
+    assert(hid_gamepad_open(&gamepad, stick1_desc, stick1_len, UNKNOWN_VID, UNKNOWN_PID));
+
+    check(feed(stick1_reports[0], 64), false, false, false, false, 0);
+
+    hid_gamepad_state_t hat = feed(stick1_reports[1], 64);
+    check(hat, false, false, true, false, BUTTON(1));
+    assert(hat.dpad_left);
+
+    hid_gamepad_state_t all = feed(stick1_reports[2], 64);
+    check(all, false, true, true, false, 0xffff);
+    assert(!all.dpad_left && !all.dpad_down);
+    assert(all.button_count == 16);
+
+    hid_gamepad_close(&gamepad);
+    ESP_LOGI(TAG, "Thrustmaster T.16000M");
+}
+
+/// WingMan Force 3D: a hat switch in the top half of a byte whose bottom half is vendor data
+static void test_wingman(void) {
+    assert(hid_gamepad_open(&gamepad, stick2_desc, stick2_len, UNKNOWN_VID, UNKNOWN_PID));
+
+    check(feed(stick2_reports[0], 7), false, false, false, false, 0);
+
+    hid_gamepad_state_t east = feed(stick2_reports[1], 7);
+    check(east, false, false, false, true, BUTTON(1));
+    assert(east.dpad_right);
+
+    check(feed(stick2_reports[2], 7), false, true, true, false, 0x7f);
+
+    hid_gamepad_close(&gamepad);
+    ESP_LOGI(TAG, "WingMan Force 3D");
+}
+
+/// X-56 Rhino throttle: thirty six buttons, of which a caller sees the first thirty two
+static void test_x56_throttle(void) {
+    assert(hid_gamepad_open(&gamepad, stick3_desc, stick3_len, UNKNOWN_VID, UNKNOWN_PID));
+
+    check(feed(stick3_reports[0], 13), false, false, false, false, 0);
+
+    // The first button and the thirty sixth are held. Only the first fits in the bitmap, and the
+    // count still says how many the pad really has.
+    hid_gamepad_state_t some = feed(stick3_reports[1], 13);
+    check(some, false, false, true, false, BUTTON(1));
+    assert(some.button_count == 36);
+
+    // Every one of the thirty six held fills the bitmap and no more
+    hid_gamepad_state_t all = feed(stick3_reports[2], 13);
+    check(all, false, true, false, false, 0xffffffff);
+    assert(all.usage_buttons == 0xffffffff);
+    assert(all.button_count == 36);
+
+    hid_gamepad_close(&gamepad);
+    ESP_LOGI(TAG, "X-56 Rhino throttle");
+}
+
 int main(void) {
     test_stadia();
     test_dualshock4_clone();
@@ -440,6 +542,11 @@ int main(void) {
     test_driving_force_pro();
     test_adapters_without_buttons();
     test_dragonrise();
+    test_ibuffalo();
+    test_dragonrise_original();
+    test_t16000m();
+    test_wingman();
+    test_x56_throttle();
     test_mice_are_rejected();
 
     printf("All gamepad tests passed\n");

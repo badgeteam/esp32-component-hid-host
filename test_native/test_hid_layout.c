@@ -1035,6 +1035,146 @@ static void test_dragonrise(void) {
     ESP_LOGI(TAG, "DragonRise JS19");
 }
 
+/// iBuffalo SNES pad: a d-pad that reports through a pair of axes
+static void test_ibuffalo(void) {
+    hid_layout_t layout;
+    assert(hid_layout_parse(gamepad15_desc, gamepad15_len, &layout));
+
+    assert(layout.report_id == 0);
+    check_field(&layout.x, 0, 8);
+    check_field(&layout.y, 8, 8);
+    check_field(&layout.buttons, 16, 1);
+    assert(layout.button_count == 8);
+    assert(!layout.hat.present);
+
+    // Its axes are absolute, so they read as directions, even though the thing being pushed is a
+    // d-pad and only ever sends one of three values
+    assert(!layout.x.relative);
+    bool low = false, high = false;
+    hid_layout_axis_directions(pad15_reports[0], 8, &layout.x, &low, &high);
+    assert(!low && !high);
+    hid_layout_axis_directions(pad15_reports[1], 8, &layout.x, &low, &high);
+    assert(low && !high);
+    hid_layout_axis_directions(pad15_reports[2], 8, &layout.y, &low, &high);
+    assert(!low && high);
+
+    // Forty padding bits follow the eight buttons, and none of them is a ninth
+    assert(!hid_layout_read_button(pad15_reports[2], 8, &layout, 8));
+
+    ESP_LOGI(TAG, "iBuffalo SNES pad");
+}
+
+/// DragonRise JS19 as it describes itself: X named five times over
+static void test_dragonrise_original(void) {
+    hid_layout_t layout;
+    assert(hid_layout_parse(gamepad16_desc, gamepad16_len, &layout));
+
+    // One item names X, X, X, X, Y across five bytes. Only the first X can be taken, so read
+    // literally the stick sits in the first byte and Y in the fifth. The kernel disagrees and
+    // replaces the whole descriptor, which is why gamepad14_desc puts X in the fourth byte.
+    check_field(&layout.x, 0, 8);
+    check_field(&layout.y, 32, 8);
+    assert(hid_layout_read(pad16_reports[1], 8, &layout.x) == 0);
+    assert(hid_layout_read(pad16_reports[1], 8, &layout.y) == 0x80);
+
+    // Four bits shaped exactly like a hat switch sit between the axes and the buttons, with a
+    // range of nought to seven and the null flag set, but the usage the descriptor gives them is
+    // nought, which names nothing. It is not a hat, and the buttons behind it still have to be
+    // found past it.
+    assert(!layout.hat.present);
+    check_field(&layout.buttons, 44, 1);
+    assert(layout.button_count == 10);
+    assert(hid_layout_read_button(pad16_reports[1], 8, &layout, 0));
+
+    // Ten vendor bits follow the buttons, and are not eleven more of them
+    assert(!hid_layout_read_button(pad16_reports[2], 8, &layout, 10));
+
+    ESP_LOGI(TAG, "DragonRise JS19, as the device tells it");
+}
+
+/// Thrustmaster T.16000M: fourteen bit axes, each with two bits of padding behind it
+static void test_t16000m(void) {
+    hid_layout_t layout;
+    assert(hid_layout_parse(stick1_desc, stick1_len, &layout));
+
+    check_field(&layout.buttons, 0, 1);
+    assert(layout.button_count == 16);
+    check_field(&layout.hat, 16, 4);
+    check_field(&layout.x, 24, 14);
+    check_field(&layout.y, 40, 14);
+    check_field(&layout.rz, 56, 8);
+
+    // Two padding bits after each axis, so Y starts sixteen bits after X rather than fourteen
+    assert(layout.x.logical_max == 16383);
+    assert(hid_layout_read(stick1_reports[0], 64, &layout.x) == 8192);
+    assert(hid_layout_read(stick1_reports[2], 64, &layout.x) == 0);
+    assert(hid_layout_read(stick1_reports[2], 64, &layout.y) == 16383);
+
+    // The throttle is a Slider, which has no field here, and it shares its item with the twist
+    assert(hid_layout_read(stick1_reports[2], 64, &layout.rz) == 255);
+
+    ESP_LOGI(TAG, "Thrustmaster T.16000M");
+}
+
+/// WingMan Force 3D: vendor data between the stick and the hat switch
+static void test_wingman(void) {
+    hid_layout_t layout;
+    assert(hid_layout_parse(stick2_desc, stick2_len, &layout));
+
+    check_field(&layout.x, 0, 8);
+    check_field(&layout.y, 8, 8);
+    check_field(&layout.hat, 20, 4);
+    check_field(&layout.rz, 24, 8);
+    check_field(&layout.buttons, 32, 1);
+    assert(layout.button_count == 7);
+
+    // The nibble at bit sixteen is vendor data. The second report has it set to all ones while
+    // the hat is pushed east, so anything reading the hat from the wrong half of that byte gets
+    // fifteen and calls it centered.
+    bool up = false, down = false, left = false, right = false;
+    hid_layout_hat_directions(stick2_reports[1], 7, &layout.hat, &up, &down, &left, &right);
+    assert(right && !up && !down && !left);
+
+    ESP_LOGI(TAG, "WingMan Force 3D");
+}
+
+/// X-56 Rhino throttle: more buttons than this parser names
+static void test_x56_throttle(void) {
+    hid_layout_t layout;
+    assert(hid_layout_parse(stick3_desc, stick3_len, &layout));
+
+    // Two ten bit axes packed together, so Y starts ten bits in
+    check_field(&layout.x, 0, 10);
+    check_field(&layout.y, 10, 10);
+    assert(layout.x.logical_max == 1023);
+    assert(hid_layout_read(stick3_reports[0], 13, &layout.x) == 512);
+    assert(hid_layout_read(stick3_reports[1], 13, &layout.x) == 0);
+    assert(hid_layout_read(stick3_reports[2], 13, &layout.y) == 1023);
+
+    // Thirty six buttons. Every one of them can be read, but only the first
+    // HID_LAYOUT_MAX_BUTTONS of them keep the number the descriptor gave them.
+    check_field(&layout.buttons, 20, 1);
+    assert(layout.button_count == 36);
+    for (int b = 0; b < HID_LAYOUT_MAX_BUTTONS; b++) {
+        assert(layout.button_usage[b] == b + 1);
+    }
+    assert(hid_layout_read_button(stick3_reports[1], 13, &layout, 0));
+    assert(!hid_layout_read_button(stick3_reports[1], 13, &layout, 1));
+    assert(hid_layout_read_button(stick3_reports[1], 13, &layout, 35));
+    for (int b = 0; b < 36; b++) {
+        assert(hid_layout_read_button(stick3_reports[2], 13, &layout, b));
+    }
+    assert(!hid_layout_read_button(stick3_reports[2], 13, &layout, 36));
+
+    // Six more axes follow, named Z, Rx, Rz, Ry, Slider, Dial in that order
+    check_field(&layout.z, 56, 8);
+    check_field(&layout.rx, 64, 8);
+    check_field(&layout.rz, 72, 8);
+    check_field(&layout.ry, 80, 8);
+
+    ESP_LOGI(TAG, "X-56 Rhino throttle");
+}
+
 int main(void) {
     test_logitech_m705();
     test_trust_mouse();
@@ -1057,6 +1197,11 @@ int main(void) {
     test_phoenixrc();
     test_vrc2();
     test_dragonrise();
+    test_ibuffalo();
+    test_dragonrise_original();
+    test_t16000m();
+    test_wingman();
+    test_x56_throttle();
     test_extra_axes();
     test_simulation_and_consumer();
     test_multiple_reports();

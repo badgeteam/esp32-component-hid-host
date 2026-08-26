@@ -43,6 +43,11 @@ int main(void) {
     failed |= write_one("wheel2", wheel2_desc, wheel2_len);
     failed |= write_one("rc1", rc1_desc, rc1_len);
     failed |= write_one("rc2", rc2_desc, rc2_len);
+    failed |= write_one("gamepad15", gamepad15_desc, gamepad15_len);
+    failed |= write_one("gamepad16", gamepad16_desc, gamepad16_len);
+    failed |= write_one("stick1", stick1_desc, stick1_len);
+    failed |= write_one("stick2", stick2_desc, stick2_len);
+    failed |= write_one("stick3", stick3_desc, stick3_len);
 
     return failed;
 }

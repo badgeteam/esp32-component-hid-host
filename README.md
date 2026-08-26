@@ -227,6 +227,18 @@ does: a signed axis running from -1800 to 1800, a fourteen bit axis, twelve bit 
 whose ranges stop at eleven and at three, usages named out of order inside one item so that the ones
 with no field here shift everything behind them, and adapters with two axes and no buttons at all.
 
+Five more are dumps from the hardware, from wherever somebody has published one: an
+[iBuffalo BSGP801](https://github.com/fasteddy516/CircuitPython_JoystickXL) SNES pad whose d-pad is
+a pair of axes rather than a hat, the
+[descriptor a DragonRise JS19 really hands out](https://github.com/spbnick/dragonrise_joystick_0011_driver)
+next to the one the kernel puts in its place, a
+[Thrustmaster T.16000M](https://github.com/ivyl/input-db) flight stick with fourteen bit axes two
+bits shy of a byte boundary, a
+[Logitech WingMan Force 3D](https://github.com/libusb/hidapi/tree/master/windows/test/data) with
+vendor data between its stick and its hat switch, and a
+[Saitek X-56 Rhino throttle](https://github.com/MNS26/X56Linux) with thirty six buttons, more than
+this parser names or a caller's bitmap holds.
+
 ## License
 
 MIT
