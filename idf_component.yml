@@ -1,5 +1,5 @@
-version: "0.3.2"
-description: "USB HID report descriptor parser and gamepad decoder: finds the axes, hat switch and buttons in a report"
+version: "0.4.0"
+description: "USB HID report descriptor parser, gamepad and keyboard decoder: finds the axes, hat switch, buttons and keys in a report"
 url: "https://github.com/badgeteam/esp32-component-hid-host"
 repository: "git://github.com/badgeteam/esp32-component-hid-host.git"
 issues: "https://github.com/badgeteam/esp32-component-hid-host/issues"
@@ -8,6 +8,7 @@ tags:
   - usb
   - hid
   - gamepad
+  - keyboard
   - mouse
 dependencies:
   idf: ">=5.3"

@@ -1,7 +1,7 @@
 # HID host
 
-Report descriptor parser and gamepad decoder for ESP-IDF projects that talk to keyboards, mice and
-gamepads over USB host.
+Report descriptor parser, gamepad decoder and keyboard decoder for ESP-IDF projects that talk to
+keyboards, mice and gamepads over USB host.
 
 Devices of the same kind do not agree on a report layout. One gamepad puts its stick in a hat
 switch, the next reports X and Y and never touches the hat. A mouse may or may not put a report ID
@@ -19,7 +19,7 @@ Add it to `idf_component.yml`:
 
 ```yaml
 dependencies:
-  badgeteam/hid-host: "^0.3.2"
+  badgeteam/hid-host: "^0.4.0"
 ```
 
 Ask the HID host driver for the report descriptor, parse it once when the device connects, then
@@ -181,6 +181,56 @@ if (gamepad.quirk != NULL && gamepad.quirk->enable_report != NULL) {
 }
 ```
 
+## Keyboards
+
+A keyboard says which keys are down in one of two shapes, and `hid_keyboard.h` hands back the same
+thing either way: the set of usages that are held.
+
+The boot report names up to six keys by value, in a six byte array, which is why it cannot say a
+seventh key is held. A keyboard with no such limit sends a bitmap instead, one bit per usage, under
+its own report ID. `hid_keyboard_state_t` is neither shape — it is a set, so a caller writes one
+code path and a key held while the report it sits in changes shape is still held.
+
+```c
+hid_keyboard_t keyboard;
+if (!hid_keyboard_open(&keyboard, descriptor, descriptor_length)) {
+    // Not a keyboard, or its descriptor never arrived. Every keyboard offers the boot report.
+    hid_keyboard_open_boot(&keyboard);
+}
+
+hid_keyboard_state_t state;
+if (hid_keyboard_decode(&keyboard, data, length, &state)) {
+    uint16_t usage = 0;
+    bool     down  = false;
+    while (hid_keyboard_next_change(&previous, &state, &usage, &down)) {
+        // usage went down or came up, in ascending order, however many there are
+    }
+    previous = state;
+}
+```
+
+`hid_keyboard_open()` needs the device in report protocol; `hid_keyboard_open_boot()` needs it in
+boot protocol. The component holds no USB handle, so setting that is yours.
+
+Three things this shape gets right that are easy to get wrong:
+
+- **A report saying rollover is refused, not decoded.** A keyboard with more keys down than it can
+  name says so in place of naming any of them, and the keys that were down are still down. Decoding
+  it as an empty keyboard releases every one of them.
+- **A report too short to hold the key array is refused.** Half a key array read looks exactly like
+  the keys in the missed slots having been let go of.
+- **Releasing what a keyboard held when it was unplugged needs no second call.** It is
+  `hid_keyboard_next_change()` against a state that has been zeroed.
+
+State belongs to the caller, so two keyboards plugged in at once do not overwrite each other.
+
+What a key *means* is not decided here, for the same reason a button's meaning is not. Turning a
+usage into a character needs a layout, a caps lock policy and an opinion about AltGr, and none of
+that belongs in a report decoder.
+
+The lock lamps are not driven yet. That needs the parser to read Output items, which it does not,
+so it is left for when there is a descriptor to test it against.
+
 ## Tests
 
 Both sources are plain C with no ESP-IDF dependency beyond logging, so everything builds and runs on
@@ -200,8 +250,9 @@ FUZZ_SECONDS=n` is the bounded run it uses.
 | File | Holds |
 | --- | --- |
 | `test_hid_layout.c` | The parser: which fields a descriptor yields, where they sit, how wide they are |
+| `test_hid_keyboard.c` | The keyboard layer: both report shapes, rollover, slot shuffle, unplug |
 | `test_hid_gamepad.c` | The decoder: which directions and buttons a report turns into |
-| `test_descriptors.h` | Twenty seven report descriptors captured from real devices |
+| `test_descriptors.h` | Twenty nine report descriptors, captured from real devices or hand built |
 | `test_reports.h` | Input reports captured alongside them |
 | `fuzz_hid_layout.c` | libFuzzer harness, parsing its input and then reading every field out of it |
 | `dump_corpus.c` | Writes the captured descriptors out as files to seed the fuzzer |

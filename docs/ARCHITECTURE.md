@@ -10,9 +10,10 @@ Three layers, each of which can be understood without the one above it.
           │
           ▼
   hid_gamepad.c                Report → directions and buttons, quirks applied
+  hid_keyboard.c               Report → the set of keys that are down
           │
           ▼
-  Your integration             Directions and buttons → whatever they mean here
+  Your integration             Directions, buttons and keys → whatever they mean here
 ```
 
 Only the bottom layer knows what a button *means*, and only the top one holds a USB handle. This
@@ -24,6 +25,8 @@ choose.
 The two middle layers are separable too. `hid_layout.h` on its own is enough for a mouse, or for
 anything wanting raw field access. `hid_gamepad.h` builds on it for the pad case, where a caller
 would rather not know whether this device steers with a stick, a hat switch, or four of its buttons.
+`hid_keyboard.h` builds on it the same way, and is a sibling of the gamepad layer rather than a
+layer under it: neither knows about the other.
 
 A working example of the layer below is
 [tanmatsu-launcher's `usb-host` component](https://github.com/Nicolai-Electronics/tanmatsu-launcher/tree/main/components/usb-host),
@@ -101,6 +104,41 @@ A usage may name its own page in its top sixteen bits, and when it does that pag
 global one. A Switch Pro Controller gives every one of its usages in full, and reading them against
 the global page would put all of them in the wrong place.
 
+### Arrays, and why keyboards needed new code
+
+Every field described so far is a **Variable** item: one control, one fixed slot in the report, read
+by looking at where it sits. Bit 1 of an Input item's flags says so, and until keyboards arrived
+nothing here had to look at it — a mouse and a gamepad describe Variable items and nothing else.
+
+A keyboard's key list is an **Array**. Its slots hold the *usages of the keys that are down*, in no
+particular order, rather than a bit per key: six bytes cover any six keys of the hundred a keyboard
+has. Slot order means nothing, and a keyboard is free to move a held key from one slot to the next
+between reports — comparing slot to slot rather than set to set invents a release and a press that
+never happened.
+
+So `take_keys()` is a third branch beside `take_buttons()` and `take_axes()`, chosen by usage page
+0x07, and it sorts three shapes out by the Variable flag and the first usage:
+
+- Not Variable, so an Array: the keys, `key_count` slots of `report_size` bits each.
+- Variable, one bit, first usage at or above 0xe0: the eight modifiers, which are a bitmap of their
+  own whatever shape the rest of the keyboard uses.
+- Variable, one bit, anything lower: a bitmap of keys, one bit per usage, which is the only way a
+  keyboard can say that a seventh key is held.
+
+A keyboard describing both shapes describes them under separate report IDs, which the report slots
+already handle.
+
+### Keyboards are valid but score nothing
+
+`layout_score()` is deliberately not taught about keys. A keyboard report is `valid`, so
+`hid_layout_parse_all()` returns it, but it scores zero, so `hid_layouts_best()` never picks it and
+`hid_layout_parse()` returns false for a keyboard-only descriptor.
+
+That asymmetry is the point rather than an oversight. `hid_layout_parse()` is the convenience entry
+point mice and gamepads use, and a keyboard turning up in it would change what every existing caller
+sees from a composite device. A keyboard is asked for through `hid_keyboard_open()`, which knows it
+wants one. There is a test pinning this, so it stays deliberate.
+
 Buttons take a different path. Their page decides it: an Input item on the Button page goes to
 `take_buttons()`, everything else to `take_axes()`. Buttons are one bit each, and an item packing
 them any other way is not followed.
@@ -171,6 +209,32 @@ The buttons come twice for the same reason: `usage_buttons` is indexed by what t
 each button, `buttons` by where the report holds it. Anything acting as a d-pad appears in neither,
 since it turned into a direction.
 
+## The keyboard layer
+
+`hid_keyboard_open()` takes every input report carrying keys, rather than the one
+`hid_layouts_best()` likes, and refuses a device that names no keys at all. Modifiers alone are not
+enough to be a keyboard: taking them would claim anything that happens to carry a modifier byte.
+
+`hid_keyboard_decode()` replaces the state rather than adding to it, because a report is a complete
+statement of what is down in the shape it uses. Two reports it refuses outright:
+
+- One saying **rollover**, where a keyboard with more keys down than it can name says so instead of
+  naming any. The keys that were down are still down; handing back an empty state releases all of
+  them. Every implementation surveyed before this one had that bug.
+- One **too short to hold the whole key array**, since a half read array is indistinguishable from
+  the keys in the missed slots having come up.
+
+The state is a set of usages rather than a copy of either report shape, which is what lets one
+caller serve both, and it is caller-owned, so two keyboards plugged in at once keep their own.
+
+Changes are walked rather than collected into a fixed array: `hid_keyboard_next_change()` takes two
+states and yields one usage at a time. Nothing is capped, so a keyboard holding a hundred keys
+enumerates all hundred — and releasing everything on unplug is the same call against a zeroed state
+rather than a second entry point.
+
+The lock lamps are not driven. That needs Output items, which the parser skips, and is left until
+there is a descriptor to test it against.
+
 ## Quirks
 
 `hid_gamepad_quirks` is a table keyed on vendor and product ID, holding what a descriptor cannot
@@ -202,4 +266,7 @@ covers — a full report table, a Push/Pop pair, buttons split across items.
 
 `fuzz_hid_layout.c` parses its input as a descriptor and then reuses the same bytes as a report
 against every reader, seeded from the captured descriptors so it starts past the first few bytes.
+It opens the same bytes as a keyboard too, decodes two states out of two windows of the input and
+walks the changes between them both ways round, since the keyboard layer indexes a set with a usage
+that came out of a report body.
 `CONTRIBUTING.md` covers running all of it.

@@ -48,6 +48,8 @@ int main(void) {
     failed |= write_one("stick1", stick1_desc, stick1_len);
     failed |= write_one("stick2", stick2_desc, stick2_len);
     failed |= write_one("stick3", stick3_desc, stick3_len);
+    failed |= write_one("keyboard1", keyboard1_desc, keyboard1_len);
+    failed |= write_one("keyboard2", keyboard2_desc, keyboard2_len);
 
     return failed;
 }

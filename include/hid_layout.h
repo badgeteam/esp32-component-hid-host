@@ -32,8 +32,8 @@ typedef struct {
 /// @brief Where the controls of a device sit within one of its input reports
 ///
 /// USB HID devices do not agree on a report layout, they describe it. This holds the part of
-/// that description a keyboardless device needs: the axes, the wheel, the hat switch and the
-/// buttons.
+/// that description this parser has a place for: the axes, the wheel, the hat switch, the
+/// buttons, and the keys and modifiers of a keyboard.
 ///
 /// A gamepad reports its left stick through x and y. The right stick is usually z and rz, and
 /// sometimes rx and ry; a pad that names no simulation controls puts its analog triggers in
@@ -55,6 +55,27 @@ typedef struct {
     hid_field_t hat;
     hid_field_t buttons;  // bit_size is one, the number of them is in button_count
     uint16_t    button_count;
+
+    /// The eight modifier keys, which are a bitmap of their own whatever shape the rest takes
+    hid_field_t modifiers;  // bit_size is one, the number of them is in modifier_count
+    uint16_t    modifier_count;
+    uint16_t    modifier_first;  // Usage of the first of them, left control on every keyboard so far
+
+    /// The keys a report names by value, which is how the boot report says what is down
+    ///
+    /// An array rather than a bitmap: key_count fields of bit_size bits, each holding the usage of
+    /// one key that is down. Six of them is the boot report, and the reason it cannot say that a
+    /// seventh key is held.
+    hid_field_t keys;
+    uint16_t    key_count;
+
+    /// The keys a report names by position, one bit each, for a keyboard with no six key limit
+    ///
+    /// A keyboard that describes both shapes describes them under separate report IDs, so a
+    /// caller reads whichever the report it has in hand belongs to.
+    hid_field_t key_bits;  // bit_size is one, the number of them is in key_bit_count
+    uint16_t    key_bit_count;
+    uint16_t    key_bit_first;  // Usage of the first of them, so the run is indexed by usage
 
     /// What the descriptor calls each button, in the order the report holds them
     ///
@@ -115,6 +136,33 @@ int32_t hid_layout_read(const uint8_t* data, int length, const hid_field_t* fiel
 ///
 /// @return false for a button the device does not have, or one the report is too short to hold
 bool hid_layout_read_button(const uint8_t* data, int length, const hid_layout_t* layout, uint16_t button);
+
+/// @brief Whether one of the eight modifier keys is held
+///
+/// Numbered from the first modifier the descriptor named, which on every keyboard seen so far is
+/// left control, so modifier 0 is left control and modifier 7 is right GUI.
+///
+/// @return false for a modifier the keyboard does not have, or one the report is too short to hold
+bool hid_layout_read_modifier(const uint8_t* data, int length, const hid_layout_t* layout, uint16_t modifier);
+
+/// @brief Whether one key of a bitmap is held, by the usage the keyboard page gives it
+///
+/// A bitmap says one bit per usage rather than naming the keys that are down, which is the only
+/// way a keyboard can say that more keys are held than a key array has room for. It is indexed by
+/// usage and not by position: a run starting at usage 4 answers for key 4 at its first bit.
+///
+/// @return false for a key outside the run, or one the report is too short to hold
+bool hid_layout_read_key_bit(const uint8_t* data, int length, const hid_layout_t* layout, uint16_t key);
+
+/// @brief The usage held in one slot of a key array, which is how the boot report names its keys
+///
+/// An array carries the usages that are down rather than a bit for every key there is, so slot
+/// order means nothing: a keyboard is free to move a held key from one slot to the next between
+/// reports. Slot 0 holding zero means no key, not the key whose usage is zero.
+///
+/// @return false for a slot this keyboard does not have, one the report is too short to hold, or
+///         an empty slot
+bool hid_layout_read_key(const uint8_t* data, int length, const hid_layout_t* layout, uint16_t slot, uint16_t* usage);
 
 /// @brief Whether an axis is pushed far enough from the center of its range to count as a direction
 ///

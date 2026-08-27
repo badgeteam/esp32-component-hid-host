@@ -1175,6 +1175,101 @@ static void test_x56_throttle(void) {
     ESP_LOGI(TAG, "X-56 Rhino throttle");
 }
 
+/// Dell QuietKey: the boot keyboard shape, a modifier bitmap and six slots naming keys by usage
+static void test_boot_keyboard(void) {
+    hid_layouts_t layouts;
+    assert(hid_layout_parse_all(keyboard1_desc, keyboard1_len, &layouts));
+    assert(layouts.count == 1);
+
+    const hid_layout_t* layout = &layouts.report[0];
+    assert(layout->valid);
+    assert(layout->report_id == 0);
+
+    check_field(&layout->modifiers, 0, 1);
+    assert(layout->modifier_count == 8);
+    assert(layout->modifier_first == 0xe0);
+
+    // The reserved byte the boot report carries is padding, so the keys start a byte after it
+    check_field(&layout->keys, 16, 8);
+    assert(layout->key_count == 6);
+
+    assert(!layout->key_bits.present);
+    assert(!layout->buttons.present);
+    assert(!layout->x.present);
+
+    // A keyboard scores nothing, so the convenience entry point does not return it. Gamepad and
+    // mouse callers are the ones hid_layout_parse() is for, and they are left exactly as they were.
+    hid_layout_t best;
+    assert(!hid_layout_parse(keyboard1_desc, keyboard1_len, &best));
+
+    ESP_LOGI(TAG, "Dell QuietKey");
+}
+
+/// A keyboard describing both shapes: the six key array on one report, a bitmap on another
+static void test_nkro_keyboard(void) {
+    hid_layouts_t layouts;
+    assert(hid_layout_parse_all(keyboard2_desc, keyboard2_len, &layouts));
+    assert(layouts.count == 2);
+
+    const hid_layout_t* boot = hid_layouts_find(&layouts, 1);
+    assert(boot != NULL);
+    check_field(&boot->modifiers, 0, 1);
+    assert(boot->modifier_count == 8);
+    check_field(&boot->keys, 16, 8);
+    assert(boot->key_count == 6);
+    assert(!boot->key_bits.present);
+
+    const hid_layout_t* bitmap = hid_layouts_find(&layouts, 2);
+    assert(bitmap != NULL);
+    check_field(&bitmap->key_bits, 0, 1);
+    assert(bitmap->key_bit_count == 120);
+    assert(bitmap->key_bit_first == 0x00);
+    assert(!bitmap->keys.present);
+
+    ESP_LOGI(TAG, "Keyboard with both shapes");
+}
+
+/// Reading keys out of the two shapes, and refusing to read what a report does not hold
+static void test_keyboard_reads(void) {
+    hid_layouts_t layouts;
+    assert(hid_layout_parse_all(keyboard1_desc, keyboard1_len, &layouts));
+    const hid_layout_t* layout = &layouts.report[0];
+
+    // Left shift held, 'a' and 'b' down. Slot order means nothing, so 'b' sits before 'a'.
+    const uint8_t report[8] = {0x02, 0x00, 0x05, 0x04, 0x00, 0x00, 0x00, 0x00};
+
+    assert(!hid_layout_read_modifier(report, sizeof(report), layout, 0));  // left control
+    assert(hid_layout_read_modifier(report, sizeof(report), layout, 1));   // left shift
+    assert(!hid_layout_read_modifier(report, sizeof(report), layout, 7));  // right GUI
+    assert(!hid_layout_read_modifier(report, sizeof(report), layout, 8));  // there is no ninth
+
+    uint16_t usage = 0xffff;
+    assert(hid_layout_read_key(report, sizeof(report), layout, 0, &usage) && usage == 0x05);
+    assert(hid_layout_read_key(report, sizeof(report), layout, 1, &usage) && usage == 0x04);
+    assert(!hid_layout_read_key(report, sizeof(report), layout, 2, &usage));  // empty slot
+    assert(usage == 0);
+    assert(!hid_layout_read_key(report, sizeof(report), layout, 6, &usage));  // there is no seventh
+
+    // A report too short to hold a slot says nothing about it rather than reading it as empty
+    assert(hid_layout_read_key(report, 3, layout, 0, &usage) && usage == 0x05);
+    assert(!hid_layout_read_key(report, 3, layout, 1, &usage));
+    assert(!hid_layout_read_modifier(report, 0, layout, 1));
+
+    // A bitmap is indexed by usage, not by position, and a key below the run is not in it
+    assert(hid_layout_parse_all(keyboard2_desc, keyboard2_len, &layouts));
+    const hid_layout_t* bitmap = hid_layouts_find(&layouts, 2);
+    assert(bitmap != NULL);
+
+    uint8_t bits[15] = {0};
+    bits[0] = 0x10;  // usage 4, 'a'
+    assert(hid_layout_read_key_bit(bits, sizeof(bits), bitmap, 4));
+    assert(!hid_layout_read_key_bit(bits, sizeof(bits), bitmap, 5));
+    assert(!hid_layout_read_key_bit(bits, sizeof(bits), bitmap, 120));  // past the run
+    assert(!hid_layout_read_key_bit(bits, 0, bitmap, 4));               // report holds nothing
+
+    ESP_LOGI(TAG, "Keyboard reads");
+}
+
 int main(void) {
     test_logitech_m705();
     test_trust_mouse();
@@ -1211,6 +1306,9 @@ int main(void) {
     test_hat_directions();
     test_bounds();
     test_rejected();
+    test_boot_keyboard();
+    test_nkro_keyboard();
+    test_keyboard_reads();
 
     printf("All report descriptor tests passed\n");
     return 0;

@@ -1,8 +1,10 @@
 *.o
 test_hid_layout
 test_hid_gamepad
+test_hid_keyboard
 test_hid_layout_san
 test_hid_gamepad_san
+test_hid_keyboard_san
 fuzz_hid_layout
 dump_corpus
 corpus/
