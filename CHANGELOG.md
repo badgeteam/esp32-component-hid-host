@@ -4,7 +4,7 @@ Notable changes per release, newest first. Versions follow
 [semantic versioning](https://semver.org), and each release is tagged `vX.Y.Z` and published to the
 ESP Component Registry as `badgeteam/hid-host`.
 
-## Unreleased
+## 0.3.2
 
 ### Added
 
