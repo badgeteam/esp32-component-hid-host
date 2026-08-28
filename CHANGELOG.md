@@ -4,6 +4,39 @@ Notable changes per release, newest first. Versions follow
 [semantic versioning](https://semver.org), and each release is tagged `vX.Y.Z` and published to the
 ESP Component Registry as `badgeteam/hid-host`.
 
+## Unreleased
+
+### Added
+
+- `hid_keyboard.h`: the keys a report says are down, as a set of usages rather than as whichever
+  shape the keyboard used to say it. The boot report names up to six keys by value and cannot say a
+  seventh is held; a keyboard with no such limit sends a bitmap under its own report ID instead.
+  Both decode to the same state, so a caller writes one code path. State belongs to the caller, so
+  two keyboards plugged in at once no longer overwrite each other, and releasing what a keyboard
+  held when it was unplugged is the change walk against a zeroed state rather than a second call.
+- `hid_layout.c` reads Array items, which is what a keyboard names its keys with: slots holding the
+  usages that are down rather than a bit per control. Everything the parser handled until now was a
+  Variable item, one control to a fixed slot, so the Variable flag had never been looked at. With
+  it come the modifier bitmap and the key bitmap, and `hid_layout_read_key()`,
+  `hid_layout_read_modifier()` and `hid_layout_read_key_bit()` to read them.
+- Two keyboard descriptors, taking the corpus to twenty nine: a Dell QuietKey captured off a
+  machine here, which is the boot shape every keyboard falls back to, and a hand built one
+  describing both shapes at once under two report IDs.
+
+### Fixed
+
+- A report saying rollover is refused rather than decoded as an empty keyboard. A keyboard with
+  more keys down than it can name says so in place of naming any of them, and the keys that were
+  down are still down.
+- A report too short to hold the whole key array is refused rather than half read, since the slots
+  that were missed are indistinguishable from keys that came up.
+
+### Note
+
+A keyboard report is valid but scores nothing, so `hid_layout_parse()` still returns false for a
+keyboard-only descriptor and `hid_layouts_best()` still picks the mouse out of a composite device.
+Existing mouse and gamepad callers are unaffected. Ask for a keyboard through `hid_keyboard_open()`.
+
 ## 0.3.2
 
 ### Added

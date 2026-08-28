@@ -35,10 +35,17 @@
 // Input item reports a change rather than a position, as a mouse does
 #define HID_INPUT_RELATIVE 0x04
 
+// Input item holds one value per field rather than a list of what is on, so a bitmap not an array
+#define HID_INPUT_VARIABLE 0x02
+
 #define HID_USAGE_PAGE_GENERIC_DESKTOP 0x01
 #define HID_USAGE_PAGE_SIMULATION      0x02
+#define HID_USAGE_PAGE_KEYBOARD        0x07
 #define HID_USAGE_PAGE_BUTTON          0x09
 #define HID_USAGE_PAGE_CONSUMER        0x0c
+
+// The eight modifier keys sit at the top of the keyboard page, above every ordinary key
+#define HID_USAGE_KEY_FIRST_MODIFIER 0xe0
 
 #define HID_USAGE_X          0x30
 #define HID_USAGE_Y          0x31
@@ -150,6 +157,62 @@ bool hid_layout_read_button(const uint8_t* data, int length, const hid_layout_t*
     field.bit_offset = (uint16_t)(field.bit_offset + button);
 
     return field_fits(&field, length) && hid_layout_read(data, length, &field) != 0;
+}
+
+/// @brief Read one bit out of a run of one bit fields
+static bool read_run_bit(const uint8_t* data, int length, const hid_field_t* run, uint16_t count, uint16_t index) {
+    if (!run->present || index >= count) {
+        return false;
+    }
+
+    hid_field_t field = *run;
+    if ((uint32_t)field.bit_offset + index > MAX_REPORT_BITS) {
+        return false;
+    }
+    field.bit_offset = (uint16_t)(field.bit_offset + index);
+
+    return field_fits(&field, length) && hid_layout_read(data, length, &field) != 0;
+}
+
+bool hid_layout_read_modifier(const uint8_t* data, int length, const hid_layout_t* layout, uint16_t modifier) {
+    return read_run_bit(data, length, &layout->modifiers, layout->modifier_count, modifier);
+}
+
+bool hid_layout_read_key_bit(const uint8_t* data, int length, const hid_layout_t* layout, uint16_t key) {
+    // A bitmap is indexed by usage rather than by position, so the usage the run starts at comes
+    // off first. Asking for a key below that start is asking for a key this run does not carry.
+    if (!layout->key_bits.present || key < layout->key_bit_first) {
+        return false;
+    }
+
+    return read_run_bit(data, length, &layout->key_bits, layout->key_bit_count,
+                        (uint16_t)(key - layout->key_bit_first));
+}
+
+bool hid_layout_read_key(const uint8_t* data, int length, const hid_layout_t* layout, uint16_t slot, uint16_t* usage) {
+    *usage = 0;
+
+    if (!layout->keys.present || slot >= layout->key_count) {
+        return false;
+    }
+
+    hid_field_t field = layout->keys;
+    if ((uint32_t)field.bit_offset + (uint32_t)slot * field.bit_size > MAX_REPORT_BITS) {
+        return false;
+    }
+    field.bit_offset = (uint16_t)(field.bit_offset + slot * field.bit_size);
+
+    if (!field_fits(&field, length)) {
+        return false;
+    }
+
+    int32_t value = hid_layout_read(data, length, &field);
+    if (value <= 0 || value > UINT16_MAX) {
+        return false;
+    }
+
+    *usage = (uint16_t)value;
+    return true;
 }
 
 bool hid_layout_strip_report_id(const hid_layout_t* layout, const uint8_t** data, int* length) {
@@ -311,6 +374,73 @@ static void take_buttons(hid_layout_t* layout, uint16_t bit_offset, const global
         (uint32_t)layout->button_count + count <= MAX_REPORT_BITS) {
         name_buttons(layout, layout->button_count, count, usage_range, usage_min, usages, usage_count);
         layout->button_count = (uint16_t)(layout->button_count + count);
+    }
+}
+
+/// @brief Take one input item to be the keys of a report, or the modifiers, or more of either
+///
+/// A keyboard says which keys are down in one of two shapes, and a keyboard that has both says it
+/// twice. The boot shape is an array: a run of byte wide fields each holding the usage of a key
+/// that is down, so six bytes cover any six keys. The other is a bitmap, one bit per usage, which
+/// is the only way to say that more keys are down than the array has room for. The eight modifier
+/// keys are always a bitmap of their own, whichever shape the rest of the keyboard uses.
+static void take_keys(hid_layout_t* layout, uint16_t bit_offset, const globals_t* g, bool variable, bool usage_range,
+                      uint32_t usage_min, uint32_t usage_max, const uint32_t* usages, uint8_t usage_count) {
+    if (g->report_count == 0 || g->report_size == 0) {
+        return;
+    }
+
+    if (!variable) {
+        // An array names its keys by value rather than by position, so the usages it listed say
+        // only which ones it may carry and the fields themselves are all alike
+        if (layout->keys.present) {
+            return;
+        }
+        layout->keys.present     = true;
+        layout->keys.bit_offset  = bit_offset;
+        layout->keys.bit_size    = g->report_size;
+        layout->keys.logical_min = g->logical_min;
+        layout->keys.logical_max = g->logical_max;
+        layout->key_count        = g->report_count;
+        return;
+    }
+
+    // A bitmap is one bit per key; a keyboard that packs them any other way is not followed
+    if (g->report_size != 1) {
+        return;
+    }
+
+    uint16_t first = 0;
+    if (usage_range) {
+        first = HID_USAGE_ID_OF(usage_min);
+    } else if (usage_count > 0) {
+        first = HID_USAGE_ID_OF(usages[0]);
+    }
+    (void)usage_max;
+
+    uint16_t count = g->report_count;
+
+    // The modifiers sit above every ordinary key, which is what tells the two bitmaps apart
+    hid_field_t* field = (first >= HID_USAGE_KEY_FIRST_MODIFIER) ? &layout->modifiers : &layout->key_bits;
+    uint16_t*    total = (first >= HID_USAGE_KEY_FIRST_MODIFIER) ? &layout->modifier_count : &layout->key_bit_count;
+    uint16_t*    start = (first >= HID_USAGE_KEY_FIRST_MODIFIER) ? &layout->modifier_first : &layout->key_bit_first;
+
+    if (!field->present) {
+        field->present     = true;
+        field->bit_offset  = bit_offset;
+        field->bit_size    = 1;
+        field->logical_min = 0;
+        field->logical_max = 1;
+        *total             = count;
+        *start             = first;
+        return;
+    }
+
+    // Keys split over two items are only worth joining when the second carries straight on from
+    // the first, in the report and in the usages both
+    if (bit_offset == field->bit_offset + *total && first == *start + *total &&
+        (uint32_t)*total + count <= MAX_REPORT_BITS) {
+        *total = (uint16_t)(*total + count);
     }
 }
 
@@ -514,7 +644,10 @@ bool hid_layout_parse_all(const uint8_t* report_descriptor, size_t length, hid_l
                             page = usage_page_of(usages[0], g.usage_page);
                         }
 
-                        if (page == HID_USAGE_PAGE_BUTTON) {
+                        if (page == HID_USAGE_PAGE_KEYBOARD) {
+                            take_keys(layout, *bit_offset, &g, (flags & HID_INPUT_VARIABLE) != 0, usage_range,
+                                      usage_min, usage_max, usages, usage_count);
+                        } else if (page == HID_USAGE_PAGE_BUTTON) {
                             take_buttons(layout, *bit_offset, &g, usage_range, usage_min, usage_max, usages,
                                          usage_count);
                         } else {
@@ -556,7 +689,9 @@ bool hid_layout_parse_all(const uint8_t* report_descriptor, size_t length, hid_l
     bool any = false;
     for (uint8_t r = 0; r < layouts->count; r++) {
         hid_layout_t* layout = &layouts->report[r];
-        layout->valid = layout->x.present || layout->y.present || layout->hat.present || layout->buttons.present;
+        layout->valid = layout->x.present || layout->y.present || layout->hat.present ||
+                        layout->buttons.present || layout->keys.present || layout->key_bits.present ||
+                        layout->modifiers.present;
         any |= layout->valid;
     }
 

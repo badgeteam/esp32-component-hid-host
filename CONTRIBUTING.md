@@ -13,12 +13,21 @@ make -C test_native test
 ## Adding a device
 
 The tests are the documentation of what real hardware actually sends, so a descriptor is worth
-adding even when the parser already handles it. Twenty seven of them are in there for exactly that
+adding even when the parser already handles it. Twenty nine of them are in there for exactly that
 reason: they pin down behaviour that would otherwise quietly change.
 
 ### Capture the descriptor
 
-On Linux the kernel keeps the descriptor of every HID device it has bound, in hexadecimal:
+On Linux the kernel hands out the descriptor of every HID device it has bound, as raw bytes and
+without needing root:
+
+```
+cat /sys/bus/hid/devices/*/report_descriptor | xxd
+```
+
+`/sys/bus/hid/devices/*/uevent` says which device each one is, so the two together give a
+descriptor and its provenance. The same bytes come with the kernel's own parsed listing, in
+hexadecimal, if you have root:
 
 ```
 sudo cat /sys/kernel/debug/hid/*/rdesc
